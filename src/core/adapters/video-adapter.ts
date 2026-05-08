@@ -3,7 +3,7 @@
  *
  * Implements MediaAdapter 接口。
  * 支持 MP4/MOV/AVI/MKV/WebM 格式。
- * 使用 ffmpeg-static 提供的 ffmpeg 二进制进行抽帧，零系统依赖。
+ * 优先使用 ffmpeg-static 内嵌二进制，不可用时 fallback 到系统 PATH 上的 ffmpeg。
  * 抽帧策略（MVP）：固定每 3 秒一帧，帧数不超过 config.maxVideoFrames。
  * ffmpeg 不可用或抽帧失败时返回空数组（降级兜底，不抛异常）。
  */
@@ -25,10 +25,13 @@ import type { MediaAdapter, Base64Image } from '../../types.js';
 import { config } from '../../config.js';
 import { logger } from '../../utils/logger.js';
 
-/** ffmpeg-static 默认导出为 ffmpeg 二进制路径（string | null） */
-const ffmpegPath: string | null = (
-  _ffmpeg as unknown as { default: string | null }
-).default;
+/**
+ * ffmpeg 二进制路径。
+ * 优先使用 ffmpeg-static 内嵌二进制，不可用时 fallback 到系统 PATH 上的 "ffmpeg" 命令。
+ * 返回 null 表示完全不可用，适配器将降级返回空数组。
+ */
+const ffmpegPath: string | null =
+  (_ffmpeg as unknown as { default: string | null }).default ?? 'ffmpeg';
 
 /** 匹配 data: URL 前缀的正则，捕获到 ;base64, 为止 */
 const DATA_URL_PREFIX_REGEX = /^data:[^;]*;base64,/i;

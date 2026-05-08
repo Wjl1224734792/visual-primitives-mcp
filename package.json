@@ -1,6 +1,6 @@
 {
   "name": "visual-primitives-mcp",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "基于 DeepSeek Visual Primitives 论文的多模态空间锚定 MCP 服务器，将视觉模型的精确坐标推理能力封装为标准 MCP 工具",
   "type": "module",
   "main": "dist/server.js",
