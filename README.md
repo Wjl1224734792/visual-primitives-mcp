@@ -418,38 +418,60 @@ visual-primitives-mcp/
 
 完整架构文档、数据流、设计决策见 **[AGENTS.md](./AGENTS.md)**。各层级指引见各级 `CLAUDE.md`。
 
-```
-MCP Client（Claude Code / OpenCode / Codex / Claude Desktop）
-       │ JSON-RPC（stdio / SSE / HTTP Stream）
-       ▼
-┌──────────────────────────────────────┐
-│         Visual Primitives MCP        │
-│  ┌────────────────────────────────┐  │
-│  │     Transport Layer            │  │
-│  │  (Stdio / Hono SSE / Stream)   │  │
-│  └───────────┬────────────────────┘  │
-│  ┌───────────▼────────────────────┐  │
-│  │    Tool Handler Registry       │  │
-│  │  describe│locate│ocr│video     │  │
-│  └───────────┬────────────────────┘  │
-│  ┌───────────▼────────────────────┐  │
-│  │  Pipeline Orchestrator (任务调度)│  │
-│  │  describe│locate│ocr│video     │  │
-│  │  ┌──────┬──────┬──────┬─────┐ │  │
-│  │  │Parser│Valid.│Norm.│PB   │ │  │
-│  │  └──┬───┴──┬───┴──┬───┴──┬─┘ │  │
-│  │     │      │      │      │    │  │
-│  │  ┌──▼──────▼──────▼──────▼─┐  │  │
-│  │  │  Session Manager (SQLite)│  │  │
-│  │  └─────────────────────────┘  │  │
-│  └───────────────────────────────┘  │
-│  ┌───────────────────────────────┐  │
-│  │  Vision Client                │  │
-│  │  chat() / analyze()           │  │
-│  │  根据 data URL MIME 自动选     │  │
-│  │  image_url / video_url        │  │
-│  └───────────────────────────────┘  │
-└──────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph Client["🔌 MCP Client"]
+        CC["Claude Code / OpenCode<br/>Codex / Claude Desktop"]
+    end
+
+    subgraph Transport["📡 Transport Layer"]
+        direction LR
+        Stdio["Stdio<br/>（本地进程通信）"]
+        SSE["SSE / HTTP Stream<br/>（Hono 服务器）"]
+    end
+
+    subgraph Handlers["📋 Tool Handler Registry"]
+        direction LR
+        Describe["visual_describe"]
+        Locate["visual_locate"]
+        OCR["visual_ocr"]
+        Video["visual_video_analyze"]
+    end
+
+    subgraph Pipeline["⚙️ Pipeline Orchestrator（任务调度核心）"]
+        subgraph PipelineCore["4 个任务方法"]
+            direction LR
+            PM1["describe()"]
+            PM2["locate()"]
+            PM3["ocr()"]
+            PM4["videoAnalyze()"]
+        end
+        subgraph Processing["坐标处理链（仅 locate）"]
+            direction LR
+            Parser["Parser<br/>JSON 解析"]
+            Validator["Validator<br/>坐标校验"]
+            Normalizer["Normalizer<br/>精度归一化"]
+            PB["PromptBuilder<br/>增强提示词"]
+        end
+        SM["Session Manager<br/>（node:sqlite · WAL）"]
+    end
+
+    subgraph Vision["🤖 Vision Client"]
+        direction LR
+        Chat["chat()<br/>自由文本输出"]
+        Analyze["analyze()<br/>JSON 坐标输出"]
+        Router["MIME 路由<br/>image_url / video_url"]
+    end
+
+    CC -->|"JSON-RPC"| Transport
+    Transport --> Handlers
+    Handlers --> PipelineCore
+    PipelineCore --> SM
+    PM2 --> Parser --> Validator --> Normalizer --> PB
+    PipelineCore --> Vision
+    Chat --> Router
+    Analyze --> Router
+    Router -->|"HTTP POST"| API["OpenAI 兼容 API<br/>（DashScope / 任意厂商）"]
 ```
 
 ## 技术栈
