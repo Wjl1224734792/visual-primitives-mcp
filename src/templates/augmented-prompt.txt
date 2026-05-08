@@ -1,0 +1,28 @@
+[多模态空间信息]
+根据对上传内容的精确视觉分析，图中与你的任务相关的关键物体/区域及其坐标如下：
+
+【图像区域】
+{{IMAGE_OBJECTS}}
+
+【视频关键帧索引】
+{{VIDEO_KEYFRAMES}}
+
+【文档页面区域】
+{{DOCUMENT_PAGES}}
+
+物体间的关键空间/时间/结构关系：
+{{SPATIAL_RELATIONSHIPS}}
+
+[你的推理规则]
+- 坐标系原点在图像/帧/页面的左上角，x 轴右延，y 轴下延
+- 坐标归一化到 0-{{COORDINATE_PRECISION}}
+- 必须显式引用物体 ID 或坐标进行推理
+{{MODALITY_SPECIFIC_RULES}}
+
+[会话历史]
+{{SESSION_HISTORY}}
+
+[用户问题]
+{{USER_QUESTION}}
+
+请严格依据以上空间信息，逐步推理并回答用户的问题。
