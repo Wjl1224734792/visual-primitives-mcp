@@ -32,14 +32,36 @@ npm install -g visual-primitives-mcp
 
 ## MCP 客户端配置
 
-### Claude Desktop
+配置完成后无需手动启动服务——MCP 客户端会自动拉起进程，stdio 模式零端口占用。
 
-编辑 Claude Desktop 配置文件（`claude_desktop_config.json`）：
+### Claude Code（推荐）
+
+在项目根目录的 `.mcp.json` 中添加，Claude Code 自动发现并启动：
 
 ```json
 {
   "mcpServers": {
     "visual-primitives": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["visual-primitives-mcp"],
+      "env": {
+        "VISION_API_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "VISION_API_KEY": "你的百炼 API Key",
+        "VISION_MODEL_NAME": "qwen3.5-plus"
+      }
+    }
+  }
+}
+```
+
+如果是本地源码开发，用 `node` 直接启动：
+
+```json
+{
+  "mcpServers": {
+    "visual-primitives": {
+      "type": "stdio",
       "command": "node",
       "args": ["dist/server.js"],
       "env": {
@@ -52,7 +74,9 @@ npm install -g visual-primitives-mcp
 }
 ```
 
-如果是从 npm 全局安装的，用绝对路径：
+### Claude Desktop
+
+编辑 `claude_desktop_config.json`：
 
 ```json
 {
@@ -72,7 +96,7 @@ npm install -g visual-primitives-mcp
 
 ### OpenCode
 
-编辑 OpenCode 配置文件（`opencode.json`）：
+编辑 `opencode.json`：
 
 ```json
 {
@@ -92,7 +116,7 @@ npm install -g visual-primitives-mcp
 
 ### Codex
 
-编辑 Codex 配置文件（`~/.codex/config.toml` 或项目根目录 `.codex.toml`）：
+编辑 `~/.codex/config.toml` 或项目根目录 `.codex.toml`：
 
 ```toml
 [mcp_servers.visual-primitives]
