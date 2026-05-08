@@ -17,12 +17,9 @@
 
 ## 推荐视觉模型
 
-| 模型                     | 平台       | API URL                                             | 特点                                     |
-| ------------------------ | ---------- | --------------------------------------------------- | ---------------------------------------- |
-| **qwen3.5-plus**         | 阿里云百炼 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 视觉能力强、性价比高、与 OpenAI 接口兼容 |
-| deepseek-v4-flash-vision | DeepSeek   | `https://api.deepseek.com/v1`                       | 原生视觉原语能力                         |
-| gpt-4o                   | OpenAI     | `https://api.openai.com/v1`                         | 通用视觉推理                             |
-| glm-4.6                  | 智谱       | `https://open.bigmodel.cn/api/paas/v4`              | 国产多模态模型                           |
+| 模型             | 平台       | API URL                                             | 特点                                     |
+| ---------------- | ---------- | --------------------------------------------------- | ---------------------------------------- |
+| **qwen3.5-plus** | 阿里云百炼 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 视觉能力强、性价比高、与 OpenAI 接口兼容 |
 
 ## 安装
 
