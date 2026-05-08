@@ -27,8 +27,23 @@
     "grounding",
     "spatial-reasoning"
   ],
-  "author": "",
+  "author": "Wjl1224734792",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Wjl1224734792/visual-primitives-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Wjl1224734792/visual-primitives-mcp/issues"
+  },
+  "homepage": "https://github.com/Wjl1224734792/visual-primitives-mcp#readme",
+  "files": [
+    "dist",
+    "src/templates",
+    "README.md",
+    "LICENSE",
+    ".env.example"
+  ],
   "engines": {
     "node": ">=22.5.0"
   },
