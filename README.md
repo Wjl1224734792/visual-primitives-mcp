@@ -51,7 +51,11 @@
       "env": {
         "VISION_API_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "VISION_API_KEY": "你的百炼 API Key",
-        "VISION_MODEL_NAME": "qwen3.5-plus"
+        "VISION_MODEL_NAME": "qwen3.5-plus",
+        "VISION_DESCRIBE_MODEL": "qwen3-vl-plus",
+        "VISION_LOCATE_MODEL": "qwen3-vl-plus",
+        "VISION_OCR_MODEL": "qwen3-vl-ocr",
+        "VISION_VIDEO_MODEL": "qwen3-vl-plus"
       }
     }
   }
@@ -70,7 +74,11 @@
       "env": {
         "VISION_API_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "VISION_API_KEY": "你的百炼 API Key",
-        "VISION_MODEL_NAME": "qwen3.5-plus"
+        "VISION_MODEL_NAME": "qwen3.5-plus",
+        "VISION_DESCRIBE_MODEL": "qwen3-vl-plus",
+        "VISION_LOCATE_MODEL": "qwen3-vl-plus",
+        "VISION_OCR_MODEL": "qwen3-vl-ocr",
+        "VISION_VIDEO_MODEL": "qwen3-vl-plus"
       }
     }
   }
@@ -90,7 +98,11 @@
       "env": {
         "VISION_API_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "VISION_API_KEY": "你的百炼 API Key",
-        "VISION_MODEL_NAME": "qwen3.5-plus"
+        "VISION_MODEL_NAME": "qwen3.5-plus",
+        "VISION_DESCRIBE_MODEL": "qwen3-vl-plus",
+        "VISION_LOCATE_MODEL": "qwen3-vl-plus",
+        "VISION_OCR_MODEL": "qwen3-vl-ocr",
+        "VISION_VIDEO_MODEL": "qwen3-vl-plus"
       }
     }
   }
@@ -110,7 +122,11 @@
       "environment": {
         "VISION_API_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "VISION_API_KEY": "你的百炼 API Key",
-        "VISION_MODEL_NAME": "qwen3.5-plus"
+        "VISION_MODEL_NAME": "qwen3.5-plus",
+        "VISION_DESCRIBE_MODEL": "qwen3-vl-plus",
+        "VISION_LOCATE_MODEL": "qwen3-vl-plus",
+        "VISION_OCR_MODEL": "qwen3-vl-ocr",
+        "VISION_VIDEO_MODEL": "qwen3-vl-plus"
       },
       "enabled": true
     }
@@ -131,6 +147,10 @@ args = ["visual-primitives-mcp"]
 VISION_API_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 VISION_API_KEY = "你的百炼 API Key"
 VISION_MODEL_NAME = "qwen3.5-plus"
+VISION_DESCRIBE_MODEL = "qwen3-vl-plus"
+VISION_LOCATE_MODEL = "qwen3-vl-plus"
+VISION_OCR_MODEL = "qwen3-vl-ocr"
+VISION_VIDEO_MODEL = "qwen3-vl-plus"
 ```
 
 ## 环境变量配置
@@ -141,20 +161,32 @@ VISION_MODEL_NAME = "qwen3.5-plus"
 cp .env.example .env
 ```
 
-| 变量名                 | 说明                                      | 默认值                | 必填 |
-| ---------------------- | ----------------------------------------- | --------------------- | ---- |
-| `VISION_API_BASE_URL`  | 视觉模型 API 基础 URL                     | —                     | 是   |
-| `VISION_API_KEY`       | API 密钥                                  | —                     | 是   |
-| `VISION_MODEL_NAME`    | 模型名称                                  | —                     | 是   |
-| `COORDINATE_PRECISION` | 坐标归一化精度（`0-100` 或 `0-1000`）     | `0-1000`              | 否   |
-| `MCP_TRANSPORT`        | 传输协议（`stdio`/`sse`/`http-stream`）   | `stdio`               | 否   |
-| `LOG_LEVEL`            | 日志级别（`debug`/`info`/`warn`/`error`） | `info`                | 否   |
-| `TIMEOUT_MS`           | API 调用超时（毫秒）                      | `45000`               | 否   |
-| `SESSION_TTL_SECONDS`  | 会话过期时间（秒）                        | `3600`                | 否   |
-| `DB_PATH`              | SQLite 数据库文件路径                     | `./data/grounding.db` | 否   |
-| `MAX_VIDEO_FRAMES`     | 视频抽帧最大数量                          | `10`                  | 否   |
-| `MAX_DOC_PAGES`        | 文档渲染最大页数                          | `20`                  | 否   |
-| `PORT`                 | SSE/HTTP Stream 模式端口                  | `3000`                | 否   |
+| 变量名                     | 说明                                      | 默认值                | 必填 |
+| -------------------------- | ----------------------------------------- | --------------------- | ---- |
+| 变量名                     | 说明                                      | 默认值                | 必填 |
+| ----------------------     | ----------------------------------------- | --------------------- | ---- |
+| `VISION_API_BASE_URL`      | 视觉模型 API 基础 URL                     | —                     | 是   |
+| `VISION_API_KEY`           | API 密钥                                  | —                     | 是   |
+| `VISION_MODEL_NAME`        | 模型名称                                  | —                     | 是   |
+| `VISION_DESCRIBE_BASE_URL` | describe 专用 baseUrl（不配回退默认值）   | —                     | 否   |
+| `VISION_DESCRIBE_API_KEY`  | describe 专用 apiKey（不配回退默认值）    | —                     | 否   |
+| `VISION_DESCRIBE_MODEL`    | describe 专用 model（不配回退默认值）     | —                     | 否   |
+| `VISION_LOCATE_BASE_URL`   | locate 专用 baseUrl（不配回退默认值）     | —                     | 否   |
+| `VISION_LOCATE_API_KEY`    | locate 专用 apiKey（不配回退默认值）      | —                     | 否   |
+| `VISION_LOCATE_MODEL`      | locate 专用 model（不配回退默认值）       | —                     | 否   |
+| `VISION_OCR_BASE_URL`      | OCR 专用 baseUrl（不配回退默认值）        | —                     | 否   |
+| `VISION_OCR_API_KEY`       | OCR 专用 apiKey（不配回退默认值）         | —                     | 否   |
+| `VISION_OCR_MODEL`         | OCR 专用 model（不配回退默认值）          | —                     | 否   |
+| `VISION_VIDEO_BASE_URL`    | video 专用 baseUrl（不配回退默认值）      | —                     | 否   |
+| `VISION_VIDEO_API_KEY`     | video 专用 apiKey（不配回退默认值）       | —                     | 否   |
+| `VISION_VIDEO_MODEL`       | video 专用 model（不配回退默认值）        | —                     | 否   |
+| `COORDINATE_PRECISION`     | 坐标归一化精度（`0-100` 或 `0-1000`）     | `0-1000`              | 否   |
+| `MCP_TRANSPORT`            | 传输协议（`stdio`/`sse`/`http-stream`）   | `stdio`               | 否   |
+| `LOG_LEVEL`                | 日志级别（`debug`/`info`/`warn`/`error`） | `info`                | 否   |
+| `TIMEOUT_MS`               | API 调用超时（毫秒）                      | `45000`               | 否   |
+| `SESSION_TTL_SECONDS`      | 会话过期时间（秒）                        | `3600`                | 否   |
+| `DB_PATH`                  | SQLite 数据库文件路径                     | `./data/grounding.db` | 否   |
+| `PORT`                     | SSE/HTTP Stream 模式端口                  | `3000`                | 否   |
 
 ## 启动方式
 

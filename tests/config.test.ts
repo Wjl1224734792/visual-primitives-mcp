@@ -14,10 +14,18 @@ beforeEach(() => {
   delete process.env.VISION_API_BASE_URL;
   delete process.env.VISION_API_KEY;
   delete process.env.VISION_MODEL_NAME;
-  delete process.env.VISION_MODEL_DESCRIBE;
-  delete process.env.VISION_MODEL_LOCATE;
-  delete process.env.VISION_MODEL_OCR;
-  delete process.env.VISION_MODEL_VIDEO;
+  delete process.env.VISION_DESCRIBE_BASE_URL;
+  delete process.env.VISION_DESCRIBE_API_KEY;
+  delete process.env.VISION_DESCRIBE_MODEL;
+  delete process.env.VISION_LOCATE_BASE_URL;
+  delete process.env.VISION_LOCATE_API_KEY;
+  delete process.env.VISION_LOCATE_MODEL;
+  delete process.env.VISION_OCR_BASE_URL;
+  delete process.env.VISION_OCR_API_KEY;
+  delete process.env.VISION_OCR_MODEL;
+  delete process.env.VISION_VIDEO_BASE_URL;
+  delete process.env.VISION_VIDEO_API_KEY;
+  delete process.env.VISION_VIDEO_MODEL;
   delete process.env.COORDINATE_PRECISION;
   delete process.env.MCP_TRANSPORT;
   delete process.env.LOG_LEVEL;
@@ -109,30 +117,55 @@ describe('ConfigLoader - 分级模型配置', () => {
     expect(config.video.model).toBe('default-model');
   });
 
-  it('设置 VISION_MODEL_DESCRIBE 时 describe 任务使用专用模型', async () => {
-    process.env.VISION_MODEL_DESCRIBE = 'describe-model';
+  it('设置 VISION_DESCRIBE_MODEL 时 describe 任务使用专用模型', async () => {
+    process.env.VISION_DESCRIBE_MODEL = 'describe-model';
     const { config } = await import(CONFIG_MODULE);
     expect(config.describe.model).toBe('describe-model');
     expect(config.locate.model).toBe('default-model');
+    // baseUrl/apiKey 应回退到默认值
+    expect(config.describe.baseUrl).toBe('https://api.test.com/v1');
+    expect(config.describe.apiKey).toBe('sk-test');
   });
 
-  it('设置 VISION_MODEL_LOCATE 时 locate 任务使用专用模型', async () => {
-    process.env.VISION_MODEL_LOCATE = 'locate-model';
+  it('设置 VISION_LOCATE_MODEL 时 locate 任务使用专用模型', async () => {
+    process.env.VISION_LOCATE_MODEL = 'locate-model';
     const { config } = await import(CONFIG_MODULE);
     expect(config.locate.model).toBe('locate-model');
     expect(config.describe.model).toBe('default-model');
   });
 
   it('所有任务可独立配置不同模型', async () => {
-    process.env.VISION_MODEL_DESCRIBE = 'm1';
-    process.env.VISION_MODEL_LOCATE = 'm2';
-    process.env.VISION_MODEL_OCR = 'm3';
-    process.env.VISION_MODEL_VIDEO = 'm4';
+    process.env.VISION_DESCRIBE_MODEL = 'm1';
+    process.env.VISION_LOCATE_MODEL = 'm2';
+    process.env.VISION_OCR_MODEL = 'm3';
+    process.env.VISION_VIDEO_MODEL = 'm4';
     const { config } = await import(CONFIG_MODULE);
     expect(config.describe.model).toBe('m1');
     expect(config.locate.model).toBe('m2');
     expect(config.ocr.model).toBe('m3');
     expect(config.video.model).toBe('m4');
+  });
+
+  it('任务可独立覆盖 baseUrl 和 apiKey', async () => {
+    process.env.VISION_OCR_BASE_URL = 'https://ocr-api.example.com/v1';
+    process.env.VISION_OCR_API_KEY = 'sk-ocr-key';
+    process.env.VISION_OCR_MODEL = 'ocr-model';
+    const { config } = await import(CONFIG_MODULE);
+    expect(config.ocr.baseUrl).toBe('https://ocr-api.example.com/v1');
+    expect(config.ocr.apiKey).toBe('sk-ocr-key');
+    expect(config.ocr.model).toBe('ocr-model');
+    // 其他任务仍使用默认值
+    expect(config.describe.baseUrl).toBe('https://api.test.com/v1');
+    expect(config.describe.apiKey).toBe('sk-test');
+  });
+
+  it('部分覆盖时未覆盖字段回退默认值', async () => {
+    process.env.VISION_DESCRIBE_MODEL = 'custom-model';
+    // 不设 VISION_DESCRIBE_BASE_URL 和 VISION_DESCRIBE_API_KEY
+    const { config } = await import(CONFIG_MODULE);
+    expect(config.describe.model).toBe('custom-model');
+    expect(config.describe.baseUrl).toBe('https://api.test.com/v1');
+    expect(config.describe.apiKey).toBe('sk-test');
   });
 });
 

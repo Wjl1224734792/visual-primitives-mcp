@@ -1,17 +1,18 @@
 /**
  * 配置体系：从环境变量读取并校验，生成 AppConfig
  *
- * 分级模型配置：
+ * 分级模型配置——每工具独立三元组 (baseUrl, apiKey, model)：
  *   VISION_API_BASE_URL / VISION_API_KEY / VISION_MODEL_NAME 作为默认值
- *   每个工具可覆盖：VISION_MODEL_DESCRIBE / VISION_MODEL_LOCATE / VISION_MODEL_OCR / VISION_MODEL_VIDEO
- *   不配置则使用默认值，全部 OpenAI 兼容接口
+ *   每个工具可独立覆盖任意字段：
+ *     VISION_{DESCRIBE|LOCATE|OCR|VIDEO}_{BASE_URL|API_KEY|MODEL}
+ *   不配置则逐字段回退到默认值，全部 OpenAI 兼容接口
  *
  * 必填变量缺失时抛出明确错误并拒绝启动
  */
 import { z } from 'zod';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { AppConfig } from './types.js';
+import type { AppConfig, ModelConfig } from './types.js';
 
 // ---- Zod Schema ----
 
@@ -23,14 +24,33 @@ const envSchema = z.object({
   /** 默认视觉模型名称（必填） */
   VISION_MODEL_NAME: z.string().min(1, 'VISION_MODEL_NAME 是必填项'),
 
-  /** visual_describe 专用模型（可选，不配则用 VISION_MODEL_NAME） */
-  VISION_MODEL_DESCRIBE: z.string().optional(),
-  /** visual_locate 专用模型（可选） */
-  VISION_MODEL_LOCATE: z.string().optional(),
-  /** visual_ocr 专用模型（可选） */
-  VISION_MODEL_OCR: z.string().optional(),
-  /** visual_video_analyze 专用模型（可选） */
-  VISION_MODEL_VIDEO: z.string().optional(),
+  /** visual_describe 专用 baseUrl（可选） */
+  VISION_DESCRIBE_BASE_URL: z.string().optional(),
+  /** visual_describe 专用 apiKey（可选） */
+  VISION_DESCRIBE_API_KEY: z.string().optional(),
+  /** visual_describe 专用 model（可选） */
+  VISION_DESCRIBE_MODEL: z.string().optional(),
+
+  /** visual_locate 专用 baseUrl（可选） */
+  VISION_LOCATE_BASE_URL: z.string().optional(),
+  /** visual_locate 专用 apiKey（可选） */
+  VISION_LOCATE_API_KEY: z.string().optional(),
+  /** visual_locate 专用 model（可选） */
+  VISION_LOCATE_MODEL: z.string().optional(),
+
+  /** visual_ocr 专用 baseUrl（可选） */
+  VISION_OCR_BASE_URL: z.string().optional(),
+  /** visual_ocr 专用 apiKey（可选） */
+  VISION_OCR_API_KEY: z.string().optional(),
+  /** visual_ocr 专用 model（可选） */
+  VISION_OCR_MODEL: z.string().optional(),
+
+  /** visual_video_analyze 专用 baseUrl（可选） */
+  VISION_VIDEO_BASE_URL: z.string().optional(),
+  /** visual_video_analyze 专用 apiKey（可选） */
+  VISION_VIDEO_API_KEY: z.string().optional(),
+  /** visual_video_analyze 专用 model（可选） */
+  VISION_VIDEO_MODEL: z.string().optional(),
 
   /** 坐标归一化精度，默认 0-1000 */
   COORDINATE_PRECISION: z.enum(['0-100', '0-1000']).default('0-1000'),
@@ -60,6 +80,23 @@ const envSchema = z.object({
     .pipe(z.number().int().min(1024).max(65535)),
 });
 
+// ---- 辅助 ----
+
+function buildModelConfig(
+  overrides: Partial<{
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+  }>,
+  defaults: ModelConfig
+): ModelConfig {
+  return {
+    baseUrl: overrides.baseUrl ?? defaults.baseUrl,
+    apiKey: overrides.apiKey ?? defaults.apiKey,
+    model: overrides.model ?? defaults.model,
+  };
+}
+
 // ---- 配置加载 ----
 
 /**
@@ -74,30 +111,46 @@ export function loadConfig(): AppConfig {
   const dbDir = dirname(parsed.DB_PATH);
   mkdirSync(dbDir, { recursive: true });
 
-  const defaultModel = {
+  const defaults: ModelConfig = {
     baseUrl: parsed.VISION_API_BASE_URL,
     apiKey: parsed.VISION_API_KEY,
     model: parsed.VISION_MODEL_NAME,
   };
 
   return {
-    vision: defaultModel,
-    describe: {
-      ...defaultModel,
-      model: parsed.VISION_MODEL_DESCRIBE ?? parsed.VISION_MODEL_NAME,
-    },
-    locate: {
-      ...defaultModel,
-      model: parsed.VISION_MODEL_LOCATE ?? parsed.VISION_MODEL_NAME,
-    },
-    ocr: {
-      ...defaultModel,
-      model: parsed.VISION_MODEL_OCR ?? parsed.VISION_MODEL_NAME,
-    },
-    video: {
-      ...defaultModel,
-      model: parsed.VISION_MODEL_VIDEO ?? parsed.VISION_MODEL_NAME,
-    },
+    vision: defaults,
+    describe: buildModelConfig(
+      {
+        baseUrl: parsed.VISION_DESCRIBE_BASE_URL,
+        apiKey: parsed.VISION_DESCRIBE_API_KEY,
+        model: parsed.VISION_DESCRIBE_MODEL,
+      },
+      defaults
+    ),
+    locate: buildModelConfig(
+      {
+        baseUrl: parsed.VISION_LOCATE_BASE_URL,
+        apiKey: parsed.VISION_LOCATE_API_KEY,
+        model: parsed.VISION_LOCATE_MODEL,
+      },
+      defaults
+    ),
+    ocr: buildModelConfig(
+      {
+        baseUrl: parsed.VISION_OCR_BASE_URL,
+        apiKey: parsed.VISION_OCR_API_KEY,
+        model: parsed.VISION_OCR_MODEL,
+      },
+      defaults
+    ),
+    video: buildModelConfig(
+      {
+        baseUrl: parsed.VISION_VIDEO_BASE_URL,
+        apiKey: parsed.VISION_VIDEO_API_KEY,
+        model: parsed.VISION_VIDEO_MODEL,
+      },
+      defaults
+    ),
     coordinatePrecision: parsed.COORDINATE_PRECISION,
     mcpTransport: parsed.MCP_TRANSPORT,
     logLevel: parsed.LOG_LEVEL,

@@ -75,8 +75,8 @@
 
 #### `config.ts` — 配置体系
 
-- Zod schema 校验 12 个环境变量（3 必填 9 可选）
-- 分级模型配置：默认值 + 每个工具独立覆盖
+- Zod schema 校验 24 个环境变量（3 必填 21 可选）
+- 分级模型配置：每工具独立三元组 (baseUrl, apiKey, model)，不配逐字段回退默认值
 - 必填项缺失时拒绝启动并输出明确错误
 - `DB_PATH` 目录不存在时自动 `mkdirSync`
 - 导出单例 `config: AppConfig`
