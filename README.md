@@ -306,40 +306,53 @@ npm run build
 
 ```
 visual-primitives-mcp/
+├── AGENTS.md                       # 完整架构文档
+├── CLAUDE.md                       # 项目入口指引 → AGENTS.md
 ├── src/
-│   ├── server.ts                  # MCP 服务入口
-│   ├── config.ts                  # 配置读取与校验
-│   ├── types.ts                   # 共享类型定义
+│   ├── CLAUDE.md                   # 入口层指引
+│   ├── server.ts                   # MCP 服务入口
+│   ├── config.ts                   # 配置读取与校验
+│   ├── types.ts                    # 共享类型定义
 │   ├── transport/
-│   │   └── factory.ts             # 传输工厂
+│   │   ├── CLAUDE.md               # 传输层指引
+│   │   └── factory.ts              # 传输工厂
 │   ├── handlers/
-│   │   └── tool-handlers.ts       # MCP 工具注册
+│   │   ├── CLAUDE.md               # 处理器层指引
+│   │   └── tool-handlers.ts        # MCP 工具注册
 │   ├── core/
-│   │   ├── pipeline.ts            # 管道编排器
-│   │   ├── modality-router.ts     # 模态路由器
-│   │   ├── parser.ts              # JSON 解析与容错
-│   │   ├── validator.ts           # 坐标与物体验证
-│   │   ├── normalizer.ts          # 坐标归一化
-│   │   ├── prompt-builder.ts      # 增强提示词构建器
-│   │   ├── vision-client.ts       # OpenAI 兼容视觉客户端
-│   │   ├── session-manager.ts     # SQLite 会话管理
+│   │   ├── CLAUDE.md               # 核心管道层指引
+│   │   ├── pipeline.ts             # 管道编排器
+│   │   ├── modality-router.ts      # 模态路由器
+│   │   ├── parser.ts               # JSON 解析与容错
+│   │   ├── validator.ts            # 坐标与物体验证
+│   │   ├── normalizer.ts           # 坐标归一化
+│   │   ├── prompt-builder.ts       # 增强提示词构建器
+│   │   ├── vision-client.ts        # OpenAI 兼容视觉客户端
+│   │   ├── session-manager.ts      # SQLite 会话管理
 │   │   └── adapters/
-│   │       ├── base-adapter.ts    # 适配器接口
-│   │       ├── image-adapter.ts   # 图片适配器
-│   │       ├── video-adapter.ts   # 视频适配器
+│   │       ├── CLAUDE.md           # 适配器层指引
+│   │       ├── base-adapter.ts     # 适配器接口
+│   │       ├── image-adapter.ts    # 图片适配器
+│   │       ├── video-adapter.ts    # 视频适配器
 │   │       └── document-adapter.ts # 文档适配器
 │   ├── templates/
-│   │   ├── vision-system.txt      # 视觉模型系统提示词
-│   │   └── augmented-prompt.txt   # 增强提示词模板
+│   │   ├── vision-system.txt       # 视觉模型系统提示词
+│   │   └── augmented-prompt.txt    # 增强提示词模板
 │   └── utils/
-│       ├── logger.ts              # 结构化日志
-│       └── retry.ts               # 指数退避重试
+│       ├── CLAUDE.md               # 工具层指引
+│       ├── logger.ts               # 结构化日志
+│       └── retry.ts                # 指数退避重试
 ├── tests/
-├── data/                          # SQLite 数据库文件
+│   └── CLAUDE.md                   # 测试套件指引
+├── bin/
+│   └── cli.js                      # CLI 入口
+├── data/                           # SQLite 数据库文件
 └── package.json
 ```
 
 ## 架构
+
+完整架构文档、数据流、设计决策见 **[AGENTS.md](./AGENTS.md)**。各层级指引见各级 `CLAUDE.md`。
 
 ```
 MCP Client（Claude Desktop / OpenCode / Codex）

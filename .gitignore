@@ -4,8 +4,6 @@ data/
 .env
 coverage/
 *.log
-AGENTS.md
-CLAUDE.md
 .claude
 .codex
 .opencode
