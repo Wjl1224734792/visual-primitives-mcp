@@ -1,25 +1,16 @@
 # Visual Primitives MCP
 
-> **灵感来源**：[DeepSeek《Thinking with Visual Primitives》](https://github.com/mitkox/Thinking-with-Visual-Primitives)（2026 年 4 月 30 日发布）首次提出将**边界框和点坐标作为最小思维单元**直接嵌入推理轨迹，实现"边想边指"的精确空间推理。本 MCP 服务器将该范式封装为标准协议工具，使任何纯文本模型都能通过调用它获得精确的空间推理能力。
+> **灵感来源**：[DeepSeek《Thinking with Visual Primitives》](https://github.com/mitkox/Thinking-with-Visual-Primitives)（2026 年 4 月 30 日发布）首次提出将**边界框和点坐标作为最小思维单元**直接嵌入推理轨迹。本 MCP 服务器将该范式封装为标准 MCP 工具，并引入**任务调度**架构——先描述后定位，两阶段各司其职。
 
-基于 DeepSeek《Thinking with Visual Primitives》论文的多模态空间锚定 MCP 服务器。将视觉模型的精确坐标推理能力封装为标准 MCP 工具，使任何纯文本模型都能通过调用它获得精确的空间推理能力。
-
-## 论文核心概念
-
-DeepSeek 在论文中指出当前多模态模型的核心瓶颈是**"指代鸿沟"（Reference Gap）**——自然语言天生模糊，在密集计数、多步空间推理等任务中无法精确指向图像中的具体对象：
-
-- **坐标作为思维单元**：将 `[x1,y1,x2,y2]` 边界框和 `[cx,cy]` 中心点作为最小推理单元，直接嵌入思维链
-- **边想边指**：模型不是"先想完再指"，而是每一步推理都用坐标锚定图像中的具体位置
-- **7056 倍视觉压缩**：一张 800×800 图像仅需约 90 个 KV Cache 条目，推理效率极高
-
-本 MCP 服务器将上述能力封装为标准化工具，让纯文本模型也能通过 API 调用获得同等水平的空间推理能力。
+基于视觉原语范式的多模态视觉理解 MCP 服务器。通过任务调度机制，将场景理解和坐标定位分离为独立工具，实现「先看清 → 再定位」的精确空间推理。
 
 ## 核心能力
 
-- **坐标锚点注入推理**：模型自动输出 `[x1,y1,x2,y2]` 边界框和 `[cx,cy]` 中心点，嵌入思维链
+- **任务调度**：4 个专注工具各司其职——描述、定位、OCR、视频分析
+- **两阶段推理**：`visual_describe` 先理解场景 → `visual_locate` 再精确坐标定位
 - **多模态统一管道**：图片/视频/文档统一转为 Base64 图像列表，复用同一分析管道
 - **有状态多轮会话**：基于 SQLite 持久化，跨轮复用已标注物体，0 额外视觉成本
-- **降级兜底**：任何阶段异常均生成降级提示词，不中断服务
+- **降级兜底**：任何阶段异常均生成降级结果，不中断服务
 
 ## 快速开始（零安装）
 
@@ -203,89 +194,128 @@ MCP_TRANSPORT=http-stream PORT=3000 npm start
 
 ## MCP 工具
 
-### `multimodal_grounding_augment`
+### 新工具（推荐）
 
-分析图像/视频/文档等多模态内容，生成带精确坐标锚点的增强提示词，供文本模型进行空间推理。
+| 工具                       | 用途               | 关键参数                                                          |
+| -------------------------- | ------------------ | ----------------------------------------------------------------- |
+| **`visual_describe`**      | 场景描述（第一步） | `image_path`, `prompt?`, `session_id?`                            |
+| **`visual_locate`**        | 坐标定位（第二步） | `question`, `image_path?`, `session_id?`, `coordinate_precision?` |
+| **`visual_ocr`**           | 文字/表格提取      | `image_path`, `prompt?`                                           |
+| **`visual_video_analyze`** | 视频内容分析       | `video_path`, `prompt?`, `session_id?`                            |
 
-| 参数                   | 类型                   | 必填 | 说明                                        |
-| ---------------------- | ---------------------- | ---- | ------------------------------------------- |
-| `session_id`           | string                 | 否   | 会话 ID，多轮复用。首次不传自动生成         |
-| `media_base64`         | string                 | 否   | 媒体内容 Base64。首次调用或需要新文件时提供 |
-| `media_type`           | string                 | 否   | 媒体类型。传入 media_base64 时必填          |
-| `question`             | string                 | 是   | 对媒体内容提出的自然语言问题                |
-| `merge_strategy`       | `replace` \| `augment` | 否   | 合并策略，默认 `augment`                    |
-| `coordinate_precision` | `0-100` \| `0-1000`    | 否   | 坐标精度，默认 `0-1000`                     |
+### 兼容旧版工具
 
-**支持的 `media_type`**：
+| 工具                               | 说明                                           |
+| ---------------------------------- | ---------------------------------------------- |
+| **`multimodal_grounding_augment`** | 兼容别名，内部转发到新管道。推荐使用新工具替代 |
 
-| 值                | 说明                      |
-| ----------------- | ------------------------- |
-| `image`           | JPEG/PNG/GIF/WebP 图片    |
-| `video`           | MP4/MOV/AVI/MKV/WebM 视频 |
-| `application/pdf` | PDF 文档                  |
-| `text/plain`      | 纯文本                    |
-| `text/markdown`   | Markdown 文本             |
+### `visual_describe` — 场景描述
 
-### 返回值
+对图片/截图进行全面、细致的自然语言描述。专注场景理解，不要求坐标输出。
+
+| 参数         | 类型   | 必填 | 说明                      |
+| ------------ | ------ | ---- | ------------------------- |
+| `image_path` | string | 是   | 本地图片绝对路径          |
+| `prompt`     | string | 否   | 分析指令，默认全面描述    |
+| `session_id` | string | 否   | 会话 ID，首次不传自动生成 |
+
+**返回值**：
 
 ```json
 {
   "session_id": "uuid-string",
-  "raw_visual_analysis": { "objects": [...], "spatial_relationships": [...] },
-  "augmented_prompt": "[多模态空间信息]\n- (id:1) ...\n[用户问题]\n...",
-  "objects_count": 5,
-  "from_cache": false,
+  "description": "页面包含顶部导航栏（Logo、搜索框）...",
   "round": 1
 }
 ```
 
-## 多轮调用示例
+### `visual_locate` — 坐标定位
 
-**第一轮（上传图像）**：
+基于场景上下文，精确定位目标物体的坐标。配合 `visual_describe` 使用，定位更准确。
+
+| 参数                   | 类型   | 必填 | 说明                                       |
+| ---------------------- | ------ | ---- | ------------------------------------------ |
+| `question`             | string | 是   | 定位目标，如"找到蓝色提交按钮"             |
+| `image_path`           | string | 否   | 本地图片路径，不传则使用缓存场景信息       |
+| `session_id`           | string | 否   | 会话 ID，首次不传自动生成                  |
+| `coordinate_precision` | string | 否   | 坐标精度 `0-100` / `0-1000`，默认 `0-1000` |
+
+**返回值**：
 
 ```json
-// Client → MCP
 {
-  "session_id": "session_abc123",
-  "media_base64": "iVBORw0KGgo...",
-  "media_type": "image",
-  "question": "左下角有什么？",
-  "merge_strategy": "replace"
-}
-// MCP → Client
-{
-  "session_id": "session_abc123",
+  "session_id": "uuid-string",
+  "raw_visual_analysis": {
+    "objects": [
+      {
+        "id": 1,
+        "label": "提交按钮",
+        "bbox": [850, 620, 920, 660],
+        "centroid": [885, 640]
+      }
+    ],
+    "spatial_relationships": []
+  },
+  "augmented_prompt": "[多模态空间信息]\n- (id:1) \"提交按钮\" bbox[850,620,920,660]...",
+  "objects_count": 1,
   "from_cache": false,
-  "round": 1,
-  "augmented_prompt": "[多模态空间信息]\n- (id:1) \"红色水杯\" bbox[50,100,300,400]...\n\n[用户问题]\n左下角有什么？"
+  "round": 2
 }
 ```
 
-**第二轮（追问，0 视觉成本）**：
+### `visual_ocr` — 文字识别
+
+从图片中提取文字和表格内容。
+
+| 参数         | 类型   | 必填 | 说明                                 |
+| ------------ | ------ | ---- | ------------------------------------ |
+| `image_path` | string | 是   | 本地图片绝对路径                     |
+| `prompt`     | string | 否   | 处理指令，如"只提取表格""翻译为英文" |
+
+**返回值**：直接返回识别出的文字内容。
+
+### `visual_video_analyze` — 视频分析
+
+分析视频内容，返回视频摘要描述。
+
+| 参数         | 类型   | 必填 | 说明                      |
+| ------------ | ------ | ---- | ------------------------- |
+| `video_path` | string | 是   | 本地视频绝对路径          |
+| `prompt`     | string | 否   | 分析指令，默认全面描述    |
+| `session_id` | string | 否   | 会话 ID，首次不传自动生成 |
+
+**返回值**：
 
 ```json
-// Client → MCP（不传 media_base64）
 {
-  "session_id": "session_abc123",
-  "question": "它右边的呢？"
-}
-// MCP → Client（from_cache: true）
-{
-  "from_cache": true,
-  "round": 2,
-  "augmented_prompt": "[会话历史]\n上一轮你关注了 (id:1)...\n\n[当前空间信息]\n- (id:1) \"红色水杯\"...\n\n[用户问题]\n它右边的呢？"
+  "session_id": "uuid-string",
+  "description": "视频展示了...",
+  "round": 1
 }
 ```
 
-**第三轮（上传新文件，增补物体）**：
+## 推荐使用流程
+
+**两步法（先描述 + 后定位）**：
 
 ```json
+// 第一步：理解场景
+// visual_describe(image_path="E:/screenshots/page.png")
 {
-  "session_id": "session_abc123",
-  "media_base64": "JVBERi0xLj...",
-  "media_type": "application/pdf",
-  "question": "PDF 里的数据表和水杯有什么关系？",
-  "merge_strategy": "augment"
+  "session_id": "abc123",
+  "description": "页面包含顶部导航栏（Logo、搜索框、用户头像）、左侧菜单栏（5个菜单项）、主内容区（数据表格、分页器）、右下角蓝色「新建」按钮...",
+  "round": 1
+}
+
+// 第二步：精确定位
+// visual_locate(session_id="abc123", question="找到蓝色新建按钮的坐标")
+{
+  "session_id": "abc123",
+  "raw_visual_analysis": {
+    "objects": [{"id": 1, "label": "新建按钮", "bbox": [850,620,920,660], "centroid": [885,640]}]
+  },
+  "from_cache": false,
+  "round": 2
 }
 ```
 
@@ -293,16 +323,16 @@ MCP_TRANSPORT=http-stream PORT=3000 npm start
 
 | 格式 | 扩展名          | 大小限制 | 说明                        |
 | ---- | --------------- | -------- | --------------------------- |
-| JPEG | `.jpg`, `.jpeg` | <= 20MB  | Base64 直传                 |
-| PNG  | `.png`          | <= 20MB  | Base64 直传                 |
-| GIF  | `.gif`          | <= 20MB  | Base64 直传                 |
-| WebP | `.webp`         | <= 20MB  | Base64 直传                 |
-| MP4  | `.mp4`          | 无硬限制 | FFmpeg 抽帧，默认最多 10 帧 |
-| MOV  | `.mov`          | 无硬限制 | 同上                        |
-| AVI  | `.avi`          | 无硬限制 | 同上                        |
-| PDF  | `.pdf`          | 无硬限制 | 视觉渲染，默认最多 20 页    |
-| TXT  | `.txt`          | 无硬限制 | 渲染为文本图像              |
-| MD   | `.md`           | 无硬限制 | 渲染为文本图像              |
+| JPEG | `.jpg`, `.jpeg` | <= 20MB  | 直接传本地路径              |
+| PNG  | `.png`          | <= 20MB  | 直接传本地路径              |
+| GIF  | `.gif`          | <= 20MB  | 直接传本地路径              |
+| WebP | `.webp`         | <= 20MB  | 直接传本地路径              |
+| BMP  | `.bmp`          | <= 20MB  | 直接传本地路径              |
+| MP4  | `.mp4`          | <= 100MB | FFmpeg 抽帧，默认最多 10 帧 |
+| MOV  | `.mov`          | <= 100MB | 同上                        |
+| AVI  | `.avi`          | <= 100MB | 同上                        |
+| MKV  | `.mkv`          | <= 100MB | 同上                        |
+| WebM | `.webm`         | <= 100MB | 同上                        |
 
 ## 开发指南
 
@@ -332,7 +362,7 @@ npm run build
 ```
 visual-primitives-mcp/
 ├── AGENTS.md                       # 完整架构文档
-├── CLAUDE.md                       # 项目入口指引 → AGENTS.md
+├── CLAUDE.md                       # 项目入口指引
 ├── src/
 │   ├── CLAUDE.md                   # 入口层指引
 │   ├── server.ts                   # MCP 服务入口
@@ -343,10 +373,10 @@ visual-primitives-mcp/
 │   │   └── factory.ts              # 传输工厂
 │   ├── handlers/
 │   │   ├── CLAUDE.md               # 处理器层指引
-│   │   └── tool-handlers.ts        # MCP 工具注册
+│   │   └── tool-handlers.ts        # MCP 工具注册（5 个工具）
 │   ├── core/
 │   │   ├── CLAUDE.md               # 核心管道层指引
-│   │   ├── pipeline.ts             # 管道编排器
+│   │   ├── pipeline.ts             # 管道编排器（任务调度）
 │   │   ├── modality-router.ts      # 模态路由器
 │   │   ├── parser.ts               # JSON 解析与容错
 │   │   ├── validator.ts            # 坐标与物体验证
@@ -356,12 +386,14 @@ visual-primitives-mcp/
 │   │   ├── session-manager.ts      # SQLite 会话管理
 │   │   └── adapters/
 │   │       ├── CLAUDE.md           # 适配器层指引
-│   │       ├── base-adapter.ts     # 适配器接口
 │   │       ├── image-adapter.ts    # 图片适配器
 │   │       ├── video-adapter.ts    # 视频适配器
 │   │       └── document-adapter.ts # 文档适配器
 │   ├── templates/
-│   │   ├── vision-system.txt       # 视觉模型系统提示词
+│   │   ├── describe-system.txt     # 场景描述系统提示词
+│   │   ├── locate-system.txt       # 坐标定位系统提示词
+│   │   ├── ocr-system.txt          # OCR 系统提示词
+│   │   ├── vision-system.txt       # 兼容旧版系统提示词
 │   │   └── augmented-prompt.txt    # 增强提示词模板
 │   └── utils/
 │       ├── CLAUDE.md               # 工具层指引
@@ -391,9 +423,10 @@ MCP Client（Claude Code / OpenCode / Codex / Claude Desktop）
 │  └───────────┬────────────────────┘  │
 │  ┌───────────▼────────────────────┐  │
 │  │    Tool Handler Registry       │  │
+│  │  describe│locate│ocr│video     │  │
 │  └───────────┬────────────────────┘  │
 │  ┌───────────▼────────────────────┐  │
-│  │    Pipeline Orchestrator       │  │
+│  │  Pipeline Orchestrator (任务调度)│  │
 │  │  ┌──────┬──────┬──────┬─────┐ │  │
 │  │  │Router│Parser│Valid.│Norm.│ │  │
 │  │  └──┬───┴──┬───┴──┬───┴──┬─┘ │  │
@@ -403,6 +436,7 @@ MCP Client（Claude Code / OpenCode / Codex / Claude Desktop）
 │  │  └─────────────────────────┘  │  │
 │  └───────────────────────────────┘  │
 │  ┌───────────────────────────────┐  │
+│  │  Vision Client (多系统提示词)  │  │
 │  │  Modality Adapters            │  │
 │  │  Image │ Video │ Document     │  │
 │  └───────────────────────────────┘  │

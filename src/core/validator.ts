@@ -3,7 +3,7 @@
  *
  * 校验规则：非空、ID 唯一、bbox 范围/合法性、centroid 位置、可选字段格式
  */
-import type { VisualObject, MediaType } from '../types.js';
+import type { VisualObject } from '../types.js';
 
 /** 校验失败时抛出的错误 */
 export class ValidationError extends Error {
@@ -12,18 +12,6 @@ export class ValidationError extends Error {
     this.name = 'ValidationError';
   }
 }
-
-/** 合法的 media_type 枚举值集合 */
-const VALID_MEDIA_TYPES: ReadonlySet<string> = new Set<MediaType>([
-  'image',
-  'video',
-  'application/pdf',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'text/plain',
-  'text/markdown',
-]);
 
 /**
  * 校验物体列表的合法性
@@ -36,12 +24,10 @@ export function validateObjects(
   objects: VisualObject[],
   precision: number
 ): void {
-  // 非空校验
   if (objects.length === 0) {
     throw new ValidationError('物体数组不能为空');
   }
 
-  // ID 唯一性校验
   const idSet = new Set<number>();
   for (const obj of objects) {
     if (idSet.has(obj.id)) {
@@ -50,12 +36,11 @@ export function validateObjects(
     idSet.add(obj.id);
   }
 
-  // 逐个物体校验
   for (const obj of objects) {
     validateBBox(obj, precision);
     validateBBoxOrder(obj);
     validateCentroid(obj);
-    validateOptionalFields(obj);
+    validateTimestampRange(obj);
   }
 }
 
@@ -117,21 +102,10 @@ function validateCentroid(obj: VisualObject): void {
   }
 }
 
-/** 校验可选字段：page、timestamp_range、media_type */
-function validateOptionalFields(obj: VisualObject): void {
-  // page：存在时必须为正整数
-  if (obj.page !== undefined && obj.page !== null) {
-    if (!Number.isInteger(obj.page) || obj.page <= 0) {
-      throw new ValidationError(
-        `物体 id=${String(obj.id)} 的 page 值 ${String(obj.page)} 无效，必须为正整数`
-      );
-    }
-  }
-
-  // timestamp_range：存在时必须为 [number, number] 且 [0] < [1]
+/** 校验 timestamp_range 可选字段 */
+function validateTimestampRange(obj: VisualObject): void {
   if (obj.timestamp_range !== undefined && obj.timestamp_range !== null) {
     const tr = obj.timestamp_range;
-
     if (!Array.isArray(tr) || tr.length < 2) {
       throw new ValidationError(
         `物体 id=${String(obj.id)} 的 timestamp_range 无效，必须为 [number, number] 格式`
@@ -140,16 +114,6 @@ function validateOptionalFields(obj: VisualObject): void {
     if (tr[0] >= tr[1]) {
       throw new ValidationError(
         `物体 id=${String(obj.id)} 的 timestamp_range 起始时间(${String(tr[0])})不小于结束时间(${String(tr[1])})`
-      );
-    }
-  }
-
-  // media_type：存在时必须为合法枚举值
-
-  if (obj.media_type !== undefined && obj.media_type !== null) {
-    if (!VALID_MEDIA_TYPES.has(obj.media_type)) {
-      throw new ValidationError(
-        `物体 id=${String(obj.id)} 的 media_type "${obj.media_type}" 不是合法值`
       );
     }
   }

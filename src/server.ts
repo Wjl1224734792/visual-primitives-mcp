@@ -29,9 +29,9 @@ import { createTransport } from './transport/factory.js';
 async function main(): Promise<void> {
   logger.info(
     {
-      ...config,
-      visionApiKey: '[REDACTED]',
-      visionApiBaseUrl: config.visionApiBaseUrl,
+      transport: config.mcpTransport,
+      defaultModel: config.vision.model,
+      baseUrl: config.vision.baseUrl,
     },
     'Visual Primitives MCP 服务启动中...'
   );
@@ -65,7 +65,7 @@ async function main(): Promise<void> {
     }
   );
 
-  // 注册 multimodal_grounding_augment 工具
+  // 注册 4 个视觉任务工具
   registerTool(server, pipeline);
 
   // ---- 步骤 3：根据传输模式创建传输实例并连接 ----

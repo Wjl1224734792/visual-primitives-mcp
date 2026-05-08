@@ -1,9 +1,12 @@
 /**
  * 配置体系：从环境变量读取并校验，生成 AppConfig
  *
+ * 分级模型配置：
+ *   VISION_API_BASE_URL / VISION_API_KEY / VISION_MODEL_NAME 作为默认值
+ *   每个工具可覆盖：VISION_MODEL_DESCRIBE / VISION_MODEL_LOCATE / VISION_MODEL_OCR / VISION_MODEL_VIDEO
+ *   不配置则使用默认值，全部 OpenAI 兼容接口
+ *
  * 必填变量缺失时抛出明确错误并拒绝启动
- * 可选变量提供合法默认值
- * DB_PATH 目录不存在时自动创建
  */
 import { z } from 'zod';
 import { mkdirSync } from 'node:fs';
@@ -13,12 +16,22 @@ import type { AppConfig } from './types.js';
 // ---- Zod Schema ----
 
 const envSchema = z.object({
-  /** 视觉模型 API 基础 URL（必填） */
+  /** 视觉模型 API 基础 URL（必填，所有工具默认使用） */
   VISION_API_BASE_URL: z.string().min(1, 'VISION_API_BASE_URL 是必填项'),
-  /** 视觉模型 API 密钥（必填） */
+  /** 视觉模型 API 密钥（必填，所有工具默认使用） */
   VISION_API_KEY: z.string().min(1, 'VISION_API_KEY 是必填项'),
-  /** 视觉模型名称（必填） */
+  /** 默认视觉模型名称（必填） */
   VISION_MODEL_NAME: z.string().min(1, 'VISION_MODEL_NAME 是必填项'),
+
+  /** visual_describe 专用模型（可选，不配则用 VISION_MODEL_NAME） */
+  VISION_MODEL_DESCRIBE: z.string().optional(),
+  /** visual_locate 专用模型（可选） */
+  VISION_MODEL_LOCATE: z.string().optional(),
+  /** visual_ocr 专用模型（可选） */
+  VISION_MODEL_OCR: z.string().optional(),
+  /** visual_video_analyze 专用模型（可选） */
+  VISION_MODEL_VIDEO: z.string().optional(),
+
   /** 坐标归一化精度，默认 0-1000 */
   COORDINATE_PRECISION: z.enum(['0-100', '0-1000']).default('0-1000'),
   /** MCP 传输协议，默认 stdio */
@@ -39,18 +52,6 @@ const envSchema = z.object({
     .pipe(z.number().int().positive()),
   /** SQLite 数据库文件路径，默认 ./data/grounding.db */
   DB_PATH: z.string().default('./data/grounding.db'),
-  /** 视频抽帧最大数量，默认 10 */
-  MAX_VIDEO_FRAMES: z
-    .string()
-    .default('10')
-    .transform(v => parseInt(v, 10))
-    .pipe(z.number().int().min(1).max(30)),
-  /** 文档渲染最大页数，默认 20 */
-  MAX_DOC_PAGES: z
-    .string()
-    .default('20')
-    .transform(v => parseInt(v, 10))
-    .pipe(z.number().int().min(1).max(50)),
   /** HTTP 服务端口（SSE / HTTP Stream 模式），默认 3000 */
   PORT: z
     .string()
@@ -73,18 +74,36 @@ export function loadConfig(): AppConfig {
   const dbDir = dirname(parsed.DB_PATH);
   mkdirSync(dbDir, { recursive: true });
 
+  const defaultModel = {
+    baseUrl: parsed.VISION_API_BASE_URL,
+    apiKey: parsed.VISION_API_KEY,
+    model: parsed.VISION_MODEL_NAME,
+  };
+
   return {
-    visionApiBaseUrl: parsed.VISION_API_BASE_URL,
-    visionApiKey: parsed.VISION_API_KEY,
-    visionModelName: parsed.VISION_MODEL_NAME,
+    vision: defaultModel,
+    describe: {
+      ...defaultModel,
+      model: parsed.VISION_MODEL_DESCRIBE ?? parsed.VISION_MODEL_NAME,
+    },
+    locate: {
+      ...defaultModel,
+      model: parsed.VISION_MODEL_LOCATE ?? parsed.VISION_MODEL_NAME,
+    },
+    ocr: {
+      ...defaultModel,
+      model: parsed.VISION_MODEL_OCR ?? parsed.VISION_MODEL_NAME,
+    },
+    video: {
+      ...defaultModel,
+      model: parsed.VISION_MODEL_VIDEO ?? parsed.VISION_MODEL_NAME,
+    },
     coordinatePrecision: parsed.COORDINATE_PRECISION,
     mcpTransport: parsed.MCP_TRANSPORT,
     logLevel: parsed.LOG_LEVEL,
     timeoutMs: parsed.TIMEOUT_MS,
     sessionTtlSeconds: parsed.SESSION_TTL_SECONDS,
     dbPath: parsed.DB_PATH,
-    maxVideoFrames: parsed.MAX_VIDEO_FRAMES,
-    maxDocPages: parsed.MAX_DOC_PAGES,
     port: parsed.PORT,
   };
 }

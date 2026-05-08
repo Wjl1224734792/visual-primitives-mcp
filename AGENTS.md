@@ -1,12 +1,12 @@
 # Visual Primitives MCP — 架构文档
 
-基于 DeepSeek《Thinking with Visual Primitives》论文的多模态空间锚定 MCP 服务器。
+基于 DeepSeek《Thinking with Visual Primitives》论文的多模态视觉理解 MCP 服务器。核心创新：**任务调度 + 两阶段推理**——先让模型看清画面（describe），再基于完整上下文追问坐标（locate），每一步专注做好一件事。
 
 ---
 
 ## 1. 项目概述
 
-将视觉模型的坐标锚点推理能力封装为 MCP 工具 `multimodal_grounding_augment`，使纯文本模型能通过调用它获得精确的空间推理能力。核心思想：**坐标不是事后标注的答案，而是推理过程中消除歧义的空间锚点**。
+将视觉模型的场景理解和坐标定位能力封装为 4 个专注 MCP 工具，通过任务调度机制实现两阶段精确空间推理。`visual_describe` 先理解场景 → `visual_locate` 再精确定位 → 两者通过共享会话上下文联动。
 
 | 属性     | 值                             |
 | -------- | ------------------------------ |
@@ -17,7 +17,7 @@
 | 持久化   | node:sqlite（内置）            |
 | 校验     | Zod                            |
 | 日志     | pino（敏感字段脱敏）           |
-| 测试     | vitest（10 文件 147 用例）     |
+| 测试     | vitest（10 文件 153 用例）     |
 
 ---
 
@@ -33,11 +33,13 @@
 │  factory.ts                  │
 ├──────────────────────────────┤
 │      处理器层 (handlers/)    │
-│  tool-handlers.ts            │
+│  tool-handlers.ts (5 工具)   │
 ├──────────────────────────────┤
 │       核心管道层 (core/)     │
 │  ┌────────────────────────┐  │
-│  │ pipeline.ts (编排器)   │  │
+│  │ pipeline.ts (任务调度)  │  │
+│  │  describe | locate     │  │
+│  │  ocr | video_analyze   │  │
 │  │ modality-router.ts     │  │
 │  │ parser.ts / validator  │  │
 │  │ normalizer.ts          │  │
@@ -47,14 +49,17 @@
 │  └────────────────────────┘  │
 │  ┌────────────────────────┐  │
 │  │   适配器层 (adapters/) │  │
-│  │  Image / Video / Doc   │  │
+│  │  Image / Video         │  │
 │  └────────────────────────┘  │
 ├──────────────────────────────┤
 │       工具层 (utils/)        │
 │  logger.ts / retry.ts        │
 ├──────────────────────────────┤
 │       模板层 (templates/)    │
-│  vision-system.txt           │
+│  describe-system.txt         │
+│  locate-system.txt           │
+│  ocr-system.txt              │
+│  vision-system.txt (兼容)    │
 │  augmented-prompt.txt        │
 └──────────────────────────────┘
 ```
@@ -68,6 +73,7 @@
 #### `server.ts` — 服务主入口
 
 - 初始化链：`SessionManager → VisionClient → PipelineOrchestrator → McpServer`
+- 注册 5 个工具（4 新 + 1 兼容）
 - 根据 `MCP_TRANSPORT` 环境变量选择传输模式（stdio / sse / http-stream）
 - Hono 仅在 SSE/HTTP Stream 模式动态加载，stdio 零开销
 - 启动 60s 间隔的 TTL 会话清理定时器
@@ -84,6 +90,7 @@
 
 - 所有接口/类型统一定义于此，全项目只读引用
 - 核心：`MediaAdapter`, `AppConfig`, `PipelineInput/Output`, `SessionContext`
+- 新增：`TaskType`, `DescribeInput/Output`, `LocateInput/Output`, `OcrInput`, `VideoAnalyzeInput/Output`
 - 冻结点：此文件完成后不再修改签名
 
 ---
@@ -103,82 +110,97 @@
 
 #### `tool-handlers.ts` — MCP 工具注册
 
-- 注册 `multimodal_grounding_augment` 工具
-- Zod 校验输入：6 个参数，`media_base64` 和 `media_type` 交叉校验
-- 未传 `session_id` 时自动生成 UUID
-- 调用 `PipelineOrchestrator.execute()` 获取结果
-- 返回 MCP 标准 `{ content: [{ type: 'text', text: '...' }] }` 格式
+注册 5 个工具，每个工具聚焦单一任务：
+
+| 工具名                         | 任务                   | 系统提示词            |
+| ------------------------------ | ---------------------- | --------------------- |
+| `visual_describe`              | 场景描述，自然语言输出 | `describe-system.txt` |
+| `visual_locate`                | 坐标定位，JSON 输出    | `locate-system.txt`   |
+| `visual_ocr`                   | 文字/表格提取          | `ocr-system.txt`      |
+| `visual_video_analyze`         | 视频内容分析           | `describe-system.txt` |
+| `multimodal_grounding_augment` | 兼容旧版，内部转发     | `vision-system.txt`   |
+
+每个工具独立 Zod 校验，自动生成 `session_id`，调用 PipelineOrchestrator 对应方法，返回 MCP 标准响应格式。
 
 ---
 
 ### 3.4 核心管道层 (`src/core/`)
 
-#### `pipeline.ts` — 管道编排器（集成核心）
+#### `pipeline.ts` — 管道编排器（任务调度核心）
 
-完整多轮处理流程：
+替代旧版单一 `execute()` 方法，提供任务调度：
 
 ```
-1. 解析输入参数
-2. getOrCreateSession
-3. 判断来源
-   ├─ fromCache（无新 media_base64）
-   │   └─ 跳过 4-7
-   └─ fromVision（有新 media_base64）
-       ├─ 4. ModalityRouter.route() → 选择适配器
-       ├─ 5. Adapter.adapt() → Base64Image[]
-       ├─ 6. VisionClient.analyze() → JSON
-       ├─ 7. Parser → Validator → Normalizer
-       └─ 8. SessionManager.upsertObjects()
-9. PromptBuilder.build()
-10. 返回 PipelineOutput
+visual_describe:
+  1. 路由适配器 → Base64Image[]
+  2. VisionClient.chat(describe-system) → 自然语言描述
+  3. 存储描述到会话历史 → 返回
+
+visual_locate:
+  1. [可选] 新媒体 → 路由适配器 → VisionClient
+  2. 注入会话上下文中之前的 describe 结果
+  3. VisionClient.chat(locate-system) → JSON
+  4. 解析/校验/归一化坐标 → 入库 → 返回
+
+visual_ocr:
+  1. 路由适配器 → Base64Image[]
+  2. VisionClient.chat(ocr-system) → 返回文字
+
+visual_video_analyze:
+  1. VideoAdapter 抽帧 → Base64Image[]
+  2. VisionClient.chat(describe-system) → 返回描述
 ```
 
-- 每个步骤独立 try/catch，任何异常不崩溃（REQ-N05）
-- 降级模式：分析失败时返回仅含用户问题+系统说明的提示词
+旧版 `execute()` 保留，转发到 locate 管道以兼容旧版调用方。
 
 #### `modality-router.ts` — 模态路由器
 
 - 注册表模式：`Map<string, MediaAdapter>`
-- 预注册 8 种媒体类型：image / video / pdf / docx / pptx / xlsx / txt / md
+- 预注册 image / video 两种媒体类型
 - 单例导出 `modalityRouter`
-- 未知类型抛 `ModalityRouterError`（含支持的列表）
+- 未知类型抛 `ModalityRouterError`
 
 #### `parser.ts` — 响应解析器
 
 - 主路径：`JSON.parse(content)`
 - 备用路径：正则提取第一个完整 JSON `/\{[\s\S]*\}/`
-- 失败抛 `AnalysisParseError`
+- 仅 `visual_locate` 使用
 
 #### `validator.ts` — 坐标校验器
 
-6 条规则：objects 非空 / ID 唯一 / bbox 范围 / x1<x2 y1<y2 / centroid 在 bbox 内 / 扩展字段格式
+- 6 条规则：objects 非空 / ID 唯一 / bbox 范围 / x1<x2 y1<y2 / centroid 在 bbox 内 / 扩展字段格式
+- 仅 `visual_locate` 使用
 
 #### `normalizer.ts` — 坐标归一化器
 
 - 0-1000 → 0-100 等比缩放
 - 同精度跳过
-- 不可变操作：返回新数组，不修改原对象
+- 不可变操作
+- 仅 `visual_locate` 使用
 
 #### `prompt-builder.ts` — 提示词构建器
 
 - 输出结构：`[多模态空间信息] → [推理规则] → [会话历史] → [用户问题]`
-- 会话历史注入最近 3 轮
-- 按模态类型分区域：图像区域 / 视频关键帧索引 / 文档页面区域
+- 会话历史注入包含之前的 describe 结果，为 locate 提供上下文
+- 按模态类型分区域：图像区域 / 视频关键帧索引
 
 #### `vision-client.ts` — 视觉模型客户端
 
 - OpenAI Chat Completions 兼容接口
-- 多图单次请求（视频多帧/文档多页在同一 messages 数组）
+- 两个入口：
+  - `analyze(images, systemPrompt)` — 旧版兼容，输出 JSON
+  - `chat(images, systemPrompt, userPrompt?)` — 新版通用，输出自由文本
+- 多图单次请求（视频多帧在同一 messages 数组）
 - 指数退避重试 + 45s 超时
-- 异常降级：返回 `{ objects: [] }` 空结构
+- 异常降级
 
 #### `session-manager.ts` — 会话管理器
 
 - 基于 `node:sqlite` 同步 API + WAL 模式
 - 聚合根 `Session`，实体 `SessionObject` / `ConversationTurn`
 - 7 个方法：createSession / getSession / upsertObjects / addConversationTurn / getRecentHistory / cleanupExpired / deleteSession
-- augment 策略：新对象从已有最大 ID+1 开始分配，避免冲突
-- replace 策略：清空旧对象后重建
+- augment 策略：新物体从已有最大 ID+1 开始分配
+- replace 策略：清空旧物体后重建
 
 ---
 
@@ -205,13 +227,6 @@ interface MediaAdapter {
 - 每帧输出 Base64 JPEG + 时间戳
 - **优先级**：`ffmpeg-static` 内嵌二进制 → 系统 PATH `ffmpeg` 命令 → 降级空数组
 
-#### `document-adapter.ts` — 文档适配器
-
-- PDF → `pdf-poppler` 渲染每页为 PNG
-- TXT/MD → `sharp` 渲染 SVG 文本为 PNG
-- Office 文档 → 空数组 + warn 日志（MVP 不支持）
-- 页数受 `MAX_DOC_PAGES` 限制
-
 ---
 
 ### 3.6 工具层 (`src/utils/`)
@@ -231,36 +246,62 @@ interface MediaAdapter {
 
 ### 3.7 模板层 (`src/templates/`)
 
-#### `vision-system.txt`
-
-视觉模型系统提示词，定义"视觉原语"输出格式：每个物体含 id/label/bbox/centroid/state/relevance，严格 JSON 输出。
-
-#### `augmented-prompt.txt`
-
-增强提示词模板，含 `{{VARIABLE}}` 占位符，运行时由 `prompt-builder.ts` 替换。
+| 模板文件               | 用途                                    | 关联工具                                  |
+| ---------------------- | --------------------------------------- | ----------------------------------------- |
+| `describe-system.txt`  | 场景描述提示词（自然语言输出）          | `visual_describe`, `visual_video_analyze` |
+| `locate-system.txt`    | 坐标定位提示词（JSON 输出）             | `visual_locate`                           |
+| `ocr-system.txt`       | OCR 文字提取提示词                      | `visual_ocr`                              |
+| `vision-system.txt`    | 旧版视觉原语提示词                      | `multimodal_grounding_augment`（兼容）    |
+| `augmented-prompt.txt` | 增强提示词模板（`{{VARIABLE}}` 占位符） | `prompt-builder.ts`                       |
 
 ---
 
 ## 4. 数据流全景
 
+### 两阶段推理流程（推荐）
+
 ```
-MCP Client (Claude Code / OpenCode / Codex)
-    │ JSON-RPC (stdio)
-    ▼
-server.ts → McpServer.connect(StdioServerTransport)
-    │
-    ▼ CallToolRequest
-tool-handlers.ts → Zod 校验 → PipelineOrchestrator.execute()
-    │
-    ├─ [Cache Hit] 直接从 SQLite 读历史物体 → PromptBuilder → 返回
-    │
-    └─ [Cache Miss]
-         ModalityRouter → Adapter.adapt() → Base64Image[]
-         → VisionClient.analyze() → JSON string
-         → Parser → Validator → Normalizer
-         → SessionManager.upsertObjects() → SQLite 持久化
-         → PromptBuilder.build() → augmented_prompt
-         → 返回
+Step 1: visual_describe
+  MCP Client → tool-handlers.ts → 读文件 + encodeFileBase64
+  → PipelineOrchestrator.describe()
+  → ModalityRouter → ImageAdapter.adapt() → Base64Image[]
+  → VisionClient.chat(describe-system)
+  → 自然语言描述存入会话历史
+  → 返回 description
+
+Step 2: visual_locate
+  MCP Client → tool-handlers.ts → [可选] encodeFileBase64
+  → PipelineOrchestrator.locate()
+  → 从 SessionManager 加载之前的 describe 结果作为上下文
+  → VisionClient.chat(locate-system) → JSON 坐标
+  → Parser → Validator → Normalizer
+  → SessionManager.upsertObjects → 持久化
+  → 返回 augmented_prompt + coordinates
+```
+
+### OCR 流程
+
+```
+visual_ocr
+  → ModalityRouter → ImageAdapter
+  → VisionClient.chat(ocr-system)
+  → 直接返回文字内容
+```
+
+### 视频分析流程
+
+```
+visual_video_analyze
+  → ModalityRouter → VideoAdapter（FFmpeg 抽帧）
+  → VisionClient.chat(describe-system)
+  → 返回视频描述
+```
+
+### 兼容流程（旧版 multimodal_grounding_augment）
+
+```
+→ PipelineOrchestrator.execute()（转发到 locate 管道）
+  → 行为与 visual_locate 一致
 ```
 
 ---
@@ -268,46 +309,49 @@ tool-handlers.ts → Zod 校验 → PipelineOrchestrator.execute()
 ## 5. 多轮会话机制
 
 ```
-Round 1: 用户上传图片 "左下角有什么？"
-  → Vision API 调用 (from_cache=false)
-  → 识别 (id:1) "红色水杯" 存储到 SQLite
+Round 1: visual_describe（上传 UI 截图）
+  → 场景描述存入会话历史
   → round=1
 
-Round 2: 追问 "它右边的呢？"（不传 media_base64）
-  → 从 SQLite 加载 (id:1) 历史物体 (from_cache=true)
-  → 0 视觉 API 成本
-  → round=2
+Round 2: visual_locate（"找到蓝色提交按钮"）
+  → 从会话历史加载 Round 1 的场景描述
+  → 将描述注入 locate 系统提示词作为上下文
+  → 模型已有完整场景认知，定位精准
+  → 物体入库 → round=2
 
-Round 3: 上传 PDF (augment 策略)
-  → Vision API 调用，新物体从已有最大 ID+1 分配
-  → 新旧物体共存于 SQLite
-  → round=3
+Round 3: visual_locate（"表格右上角的分页器"）
+  → 从缓存读取已有物体（from_cache=true）
+  → 加上之前的描述上下文
+  → 0 视觉 API 成本 → round=3
 ```
 
 ---
 
 ## 6. 降级策略
 
-| 阶段       | 异常                     | 处理                                          |
-| ---------- | ------------------------ | --------------------------------------------- |
-| 适配器     | FFmpeg 不可用 / 渲染失败 | 先 fallback 到系统 ffmpeg，仍不可用返回空数组 |
-| 视觉客户端 | 网络/超时/429/5xx        | 指数退避 3 次 → 降级 JSON                     |
-| 解析器     | JSON 格式错误            | 正则备用 → `AnalysisParseError`               |
-| 校验器     | 坐标越界/ID 重复         | `ValidationError` → 跳过此轮                  |
-| 整体       | 任何未捕获异常           | `buildDegradedOutput()` → 不崩溃              |
+| 阶段       | 异常              | 处理                                          |
+| ---------- | ----------------- | --------------------------------------------- |
+| 适配器     | FFmpeg 不可用     | 先 fallback 到系统 ffmpeg，仍不可用返回空数组 |
+| 视觉客户端 | 网络/超时/429/5xx | 指数退避 3 次 → 降级结果                      |
+| 解析器     | JSON 格式错误     | 正则备用 → `AnalysisParseError`               |
+| 校验器     | 坐标越界/ID 重复  | `ValidationError` → 跳过此轮                  |
+| 整体       | 任何未捕获异常    | 降级输出 → 不崩溃                             |
 
 ---
 
 ## 7. 关键设计决策
 
-| 决策       | 选择                                | 理由                                       |
-| ---------- | ----------------------------------- | ------------------------------------------ |
-| 模态统一   | 所有输入 → Base64Image[] → 同一管道 | 适配器只做格式转换，核心逻辑复用           |
-| 视频处理   | FFmpeg 抽帧 + 系统 PATH 兜底        | 优先用内嵌二进制，不可用时 try 系统 ffmpeg |
-| 文档处理   | 视觉渲染路径（不提取文本）          | 版式复杂场景表现好，零额外逻辑             |
-| 会话持久化 | node:sqlite (Node.js 内置)          | 零依赖、同步 API、WAL 事务安全             |
-| 多模态适配 | 注册表模式                          | 新增模态只需注册一行，不改管道             |
-| 降级兜底   | 每步独立 try/catch                  | 任何单点故障不影响服务可用性               |
+| 决策         | 选择                                 | 理由                                         |
+| ------------ | ------------------------------------ | -------------------------------------------- |
+| 任务调度     | 4 个独立工具 + 管道方法分发          | 每个工具专注一件事，系统提示词独立优化       |
+| 两阶段推理   | describe（自然语言）→ locate（JSON） | 先理解再定位，避免同时做两件事导致的精度下降 |
+| 上下文注入   | locate 时注入历史 describe 结果      | 模型已有完整场景认知，定位准确度显著提升     |
+| 模态统一     | 所有输入 → Base64Image[] → 同一管道  | 适配器只做格式转换，核心逻辑复用             |
+| 视频处理     | FFmpeg 抽帧 + 系统 PATH 兜底         | 优先用内嵌二进制，不可用时 try 系统 ffmpeg   |
+| 会话持久化   | node:sqlite (Node.js 内置)           | 零依赖、同步 API、WAL 事务安全               |
+| 多模态适配   | 注册表模式                           | 新增模态只需注册一行，不改管道               |
+| 降级兜底     | 每步独立 try/catch                   | 任何单点故障不影响服务可用性                 |
+| 文件路径支持 | 直接传本地路径，内部编码 Base64      | 用户无需手动编码，使用体验等同于 dashscope   |
 
 ---
 
@@ -318,7 +362,7 @@ npm run dev          # 热重载开发
 npm run build        # 编译到 dist/
 npm run lint         # ESLint 检查
 npm run typecheck    # TypeScript 类型检查
-npm test             # 运行 147 个测试
+npm test             # 运行 153 个测试
 npm start            # 启动 MCP 服务（stdio）
 ```
 

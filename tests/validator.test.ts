@@ -1,13 +1,10 @@
 /**
  * Validator 单元测试：坐标范围、合法性、唯一性校验
- *
- * TDD Red 阶段：目标模块 src/core/validator.ts 尚未实现，预期导入失败
  */
 import { describe, it, expect } from 'vitest';
 import { validateObjects, ValidationError } from '../src/core/validator.js';
 import type { VisualObject } from '../src/types.js';
 
-/** 创建一个合法的测试物体 */
 function makeValidObject(overrides: Partial<VisualObject> = {}): VisualObject {
   return {
     id: 1,
@@ -46,7 +43,6 @@ describe('validateObjects - 正常通过', () => {
   it('centroid 恰好在 bbox 边界上应通过', () => {
     const objects: VisualObject[] = [
       makeValidObject({ id: 1, bbox: [0, 0, 100, 100], centroid: [0, 0] }),
-      // cx == x1, cy == y1 边界情况
     ];
     expect(() => validateObjects(objects, 1000)).not.toThrow();
   });
@@ -60,22 +56,14 @@ describe('validateObjects - 正常通过', () => {
 
   it('可选字段为空时正常通过', () => {
     const objects: VisualObject[] = [
-      makeValidObject({
-        page: undefined,
-        timestamp_range: undefined,
-        media_type: undefined,
-      }),
+      makeValidObject({ timestamp_range: undefined }),
     ];
     expect(() => validateObjects(objects, 1000)).not.toThrow();
   });
 
-  it('可选字段含合法值时应通过', () => {
+  it('timestamp_range 含合法值时应通过', () => {
     const objects: VisualObject[] = [
-      makeValidObject({
-        page: 3,
-        timestamp_range: [1.5, 5.0],
-        media_type: 'video',
-      }),
+      makeValidObject({ timestamp_range: [1.5, 5.0] }),
     ];
     expect(() => validateObjects(objects, 1000)).not.toThrow();
   });
@@ -209,22 +197,7 @@ describe('validateObjects - centroid 位置', () => {
   });
 });
 
-describe('validateObjects - 可选字段校验', () => {
-  it('page 存在但不是正整数应抛出 ValidationError', () => {
-    const objects: VisualObject[] = [makeValidObject({ page: 0 })];
-    expect(() => validateObjects(objects, 1000)).toThrow(ValidationError);
-  });
-
-  it('page 为负数应抛出 ValidationError', () => {
-    const objects: VisualObject[] = [makeValidObject({ page: -1 })];
-    expect(() => validateObjects(objects, 1000)).toThrow(ValidationError);
-  });
-
-  it('page 为小数应抛出 ValidationError', () => {
-    const objects: VisualObject[] = [makeValidObject({ page: 1.5 })];
-    expect(() => validateObjects(objects, 1000)).toThrow(ValidationError);
-  });
-
+describe('validateObjects - timestamp_range 校验', () => {
   it('timestamp_range 不是二元组应抛出 ValidationError', () => {
     const objects: VisualObject[] = [
       makeValidObject({ timestamp_range: [1] as unknown as [number, number] }),
@@ -244,20 +217,6 @@ describe('validateObjects - 可选字段校验', () => {
       makeValidObject({ timestamp_range: [10.0, 5.0] }),
     ];
     expect(() => validateObjects(objects, 1000)).toThrow(ValidationError);
-  });
-
-  it('media_type 存在但不是合法枚举值应抛出 ValidationError', () => {
-    const objects: VisualObject[] = [
-      makeValidObject({
-        media_type: 'audio/mp3' as unknown as Parameters<
-          typeof makeValidObject
-        >[0]['media_type'],
-      }),
-    ];
-    // @ts-expect-error 故意传入非法值
-    objects[0]!.media_type = 'audio/mp3';
-    expect(() => validateObjects(objects, 1000)).toThrow(ValidationError);
-    expect(() => validateObjects(objects, 1000)).toThrow(/media_type/);
   });
 });
 

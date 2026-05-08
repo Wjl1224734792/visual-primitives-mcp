@@ -1,17 +1,9 @@
 /**
  * VideoAdapter 测试
  *
- * 覆盖：MediaAdapter 接口验证、空输入、ffmpeg 不可用降级
- * 跳过实际 FFmpeg 调用的集成测试（依赖外部二进制）
+ * 覆盖：MediaAdapter 接口验证、空输入、大小限制
  */
 import { describe, it, expect, vi } from 'vitest';
-
-// 在模块加载前 mock 依赖
-vi.mock('../../src/config.js', () => ({
-  config: {
-    maxVideoFrames: 10,
-  },
-}));
 
 vi.mock('../../src/utils/logger.js', () => ({
   logger: {
@@ -21,56 +13,52 @@ vi.mock('../../src/utils/logger.js', () => ({
   },
 }));
 
-// 模拟 ffmpeg 不可用
-vi.mock('ffmpeg-static', () => ({
-  default: null,
-}));
-
 import { VideoAdapter } from '../../src/core/adapters/video-adapter.js';
 
-describe('VideoAdapter - implements MediaAdapter', () => {
-  it('mediaType 属性为 "video"', () => {
-    const adapter = new VideoAdapter();
+describe('VideoAdapter', () => {
+  let adapter: VideoAdapter;
+
+  beforeEach(() => {
+    adapter = new VideoAdapter();
+  });
+
+  it('mediaType 应为 video', () => {
     expect(adapter.mediaType).toBe('video');
   });
 
-  it('adapt 方法返回 Promise<Base64Image[]>', async () => {
-    const adapter = new VideoAdapter();
-    const result = await adapter.adapt('dGVzdA==');
-    expect(Array.isArray(result)).toBe(true);
-  });
-
-  it('readonly mediaType 满足 MediaAdapter 接口', () => {
-    const adapter = new VideoAdapter();
-    expect(typeof adapter.mediaType).toBe('string');
-    expect(adapter.mediaType).toBe('video');
-  });
-});
-
-describe('VideoAdapter - 空输入', () => {
-  it('空字符串返回空数组', async () => {
-    const adapter = new VideoAdapter();
+  it('空字符串应返回空数组', async () => {
     const result = await adapter.adapt('');
     expect(result).toEqual([]);
   });
 
-  it('纯空白字符串返回空数组', async () => {
-    const adapter = new VideoAdapter();
+  it('纯空格字符串应返回空数组', async () => {
     const result = await adapter.adapt('   ');
     expect(result).toEqual([]);
   });
-});
 
-describe('VideoAdapter - 降级处理', () => {
-  it('ffmpeg 不可用时返回空数组（不抛异常）', async () => {
-    const adapter = new VideoAdapter();
-    const result = await adapter.adapt('dGVzdA==');
-    expect(result).toEqual([]);
+  it('有效 data URL 应解析并返回 Base64Image', async () => {
+    const result = await adapter.adapt('data:video/mp4;base64,dGVzdA==');
+    expect(result).toHaveLength(1);
+    expect(result[0]!.base64).toBe('dGVzdA==');
+    expect(result[0]!.mime_type).toBe('video/mp4');
   });
 
-  it('无效 Base64 内容不抛异常', async () => {
-    const adapter = new VideoAdapter();
-    const result = await adapter.adapt('!!!not-valid-base64!!!');
-    expect(Array.isArray(result)).toBe(true);
+  it('mov 格式应正确检测', async () => {
+    const result = await adapter.adapt('data:video/mov;base64,dGVzdA==');
+    expect(result).toHaveLength(1);
+    expect(result[0]!.mime_type).toBe('video/mov');
+  });
+
+  it('无 data URL 前缀时应默认为 video/mp4', async () => {
+    const result = await adapter.adapt('dGVzdA==');
+    expect(result).toHaveLength(1);
+    expect(result[0]!.mime_type).toBe('video/mp4');
+    expect(result[0]!.base64).toBe('dGVzdA==');
+  });
+
+  it('超过 100MB 限制应返回空数组', async () => {
+    const huge = 'x'.repeat(133_333_334);
+    const result = await adapter.adapt(huge);
+    expect(result).toEqual([]);
   });
 });

@@ -15,12 +15,12 @@ interface MediaAdapter {
 
 ## 适配器
 
-| 文件                  | 输入                     | 输出                   | 特殊处理                                       |
-| --------------------- | ------------------------ | ---------------------- | ---------------------------------------------- |
-| `base-adapter.ts`     | —                        | —                      | 重新导出 `MediaAdapter` 类型                   |
-| `image-adapter.ts`    | JPEG/PNG/GIF/WebP Base64 | 单元素 `Base64Image[]` | >20MB 拒绝，MIME 检测                          |
-| `video-adapter.ts`    | MP4/MOV/AVI Base64       | N 帧 `Base64Image[]`   | FFmpeg 抽帧 `fps=1/3`，上限 `MAX_VIDEO_FRAMES` |
-| `document-adapter.ts` | PDF/TXT/MD Base64        | N 页 `Base64Image[]`   | pdf-poppler / sharp 渲染，Office MVP 不支持    |
+| 文件               | 输入                     | 输出                   | 特殊处理               |
+| ------------------ | ------------------------ | ---------------------- | ---------------------- |
+| `image-adapter.ts` | JPEG/PNG/GIF/WebP Base64 | 单元素 `Base64Image[]` | >20MB 拒绝，MIME 检测  |
+| `video-adapter.ts` | MP4/MOV/AVI Base64       | 单元素 `Base64Image[]` | >100MB 拒绝，MIME 检测 |
+
+视频通过 `video_url` 直接发送给视觉模型，不做帧提取。DashScope 等兼容 OpenAI 的 API 原生支持视频理解。
 
 ## 降级规则
 

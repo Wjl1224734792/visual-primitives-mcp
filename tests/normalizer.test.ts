@@ -34,13 +34,17 @@ describe('normalizeObjects - 同精度', () => {
 
   it('同精度场景下原有属性不应丢失', () => {
     const original: VisualObject[] = [
-      makeObject({ state: '正常', relevance: '高', page: 3 }),
+      makeObject({
+        state: '正常',
+        relevance: '高',
+        timestamp_range: [1.5, 3.0],
+      }),
     ];
     const result = normalizeObjects(original, 1000, 1000);
 
     expect(result[0]!.state).toBe('正常');
     expect(result[0]!.relevance).toBe('高');
-    expect(result[0]!.page).toBe(3);
+    expect(result[0]!.timestamp_range).toEqual([1.5, 3.0]);
   });
 });
 
@@ -173,10 +177,11 @@ describe('normalizeObjects - 不可变性', () => {
   });
 
   it('不应修改原始物体的嵌套属性', () => {
-    const original: VisualObject[] = [makeObject({ page: 1 })];
+    const original: VisualObject[] = [
+      makeObject({ timestamp_range: [1.5, 3.0] }),
+    ];
     normalizeObjects(original, 100, 1000);
 
-    // 原始物体完全不变
-    expect(original[0]!.page).toBe(1);
+    expect(original[0]!.timestamp_range).toEqual([1.5, 3.0]);
   });
 });

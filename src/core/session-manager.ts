@@ -5,7 +5,7 @@
  *
  * 聚合根：Session（会话元数据）
  * 实体：SessionObject（已标注物体）、ConversationTurn（对话轮次）
- * 值对象：BBox, Centroid, MergeStrategy（定义在 types.ts）
+ * 值对象：MergeStrategy（augment / replace）
  * 领域服务：ObjectMergeService（augment/replace 合并策略，作为私有方法实现）
  * 领域事件：轻量函数调用，记录关键操作日志
  *
@@ -18,8 +18,9 @@ import type {
   SessionObject,
   SessionContext,
   ConversationTurn,
-  MergeStrategy,
 } from '../types.js';
+
+type MergeStrategy = 'augment' | 'replace';
 import type { IDatabaseSyncInstance } from './sqlite-wrapper.js';
 import { logger } from '../utils/logger.js';
 
@@ -82,7 +83,6 @@ function rowToSessionObject(row: Record<string, unknown>): SessionObject {
     cy: toNum(row['cy']),
     state: toStr(row['state']),
     relevance: toStr(row['relevance']),
-    page: toOptNum(row['page']),
     timestamp_start: toOptNum(row['timestamp_start']),
     timestamp_end: toOptNum(row['timestamp_end']),
     media_type: toStr(row['media_type']),
@@ -144,7 +144,6 @@ export class SessionManager {
           cx            REAL, cy REAL,
           state         TEXT,
           relevance     TEXT,
-          page          INTEGER,
           timestamp_start REAL,
           timestamp_end   REAL,
           media_type    TEXT,
@@ -470,8 +469,8 @@ export class SessionManager {
   private insertObjects(sessionId: string, objects: SessionObject[]): void {
     const stmt = this.db.prepare(
       `INSERT INTO session_objects
-       (session_id, object_id, label, x1, y1, x2, y2, cx, cy, state, relevance, page, timestamp_start, timestamp_end, media_type, created_round)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       (session_id, object_id, label, x1, y1, x2, y2, cx, cy, state, relevance, timestamp_start, timestamp_end, media_type, created_round)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
     for (const obj of objects) {
@@ -487,7 +486,6 @@ export class SessionManager {
         obj.cy,
         obj.state,
         obj.relevance,
-        obj.page ?? null,
         obj.timestamp_start ?? null,
         obj.timestamp_end ?? null,
         obj.media_type,

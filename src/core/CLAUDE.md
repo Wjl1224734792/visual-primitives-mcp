@@ -1,37 +1,51 @@
 # src/core/ — 核心管道层
 
-数据处理核心：从视觉模型原始输出到增强提示词的完整管道。
+数据处理核心：任务调度分发的视觉处理管道。
 
-## 模块流水线
+## 任务调度架构
+
+`pipeline.ts` 提供 4 个独立任务方法：
 
 ```
-VisionClient.analyze() → raw JSON string
-  → parser.ts       JSON 解析（主路径 + 正则备用）
-  → validator.ts    6 条坐标校验规则
-  → normalizer.ts   精度归一化（0-1000 → 0-100）
-  → prompt-builder.ts  增强提示词拼接 + 会话历史注入
+visual_describe:
+  VisionClient.chat(describe-system) → 自然语言描述 → 入库会话历史
+
+visual_locate:
+  VisionClient.analyze(locate-system) → JSON 坐标
+  → parser.ts → validator.ts → normalizer.ts → 入库会话物体
+
+visual_ocr:
+  VisionClient.chat(ocr-system) → 文字内容 → 直接返回
+
+visual_video_analyze:
+  VideoAdapter 透传 → VisionClient.chat(describe-system) → 返回描述
 ```
 
 ## 文件
 
-| 文件                 | 职责                                       |
-| -------------------- | ------------------------------------------ |
-| `pipeline.ts`        | **管道编排器** — 多轮流程协调，是集成核心  |
-| `modality-router.ts` | **模态路由器** — media_type → Adapter 分发 |
-| `parser.ts`          | JSON 解析 + 容错                           |
-| `validator.ts`       | 坐标校验（范围/合法性/唯一性）             |
-| `normalizer.ts`      | 精度归一化                                 |
-| `prompt-builder.ts`  | 增强提示词构建                             |
-| `vision-client.ts`   | OpenAI 兼容视觉模型客户端                  |
-| `session-manager.ts` | SQLite 会话持久化（7 个方法）              |
-| `sqlite-wrapper.ts`  | node:sqlite Vite 兼容适配层                |
+| 文件                 | 职责                                        |
+| -------------------- | ------------------------------------------- |
+| `pipeline.ts`        | **管道编排器** — 任务调度核心，4 个方法     |
+| `modality-router.ts` | **模态路由器** — media_type → Adapter 分发  |
+| `parser.ts`          | JSON 解析 + 容错（仅 locate）               |
+| `validator.ts`       | 坐标校验（仅 locate）                       |
+| `normalizer.ts`      | 精度归一化（仅 locate）                     |
+| `prompt-builder.ts`  | 增强提示词构建 + 历史描述上下文注入         |
+| `vision-client.ts`   | OpenAI 兼容视觉客户端（`analyze` + `chat`） |
+| `session-manager.ts` | SQLite 会话持久化                           |
+| `sqlite-wrapper.ts`  | node:sqlite Vite 兼容适配层                 |
+
+## 模型配置
+
+每个工具方法使用独立的 `ModelConfig`（`config.describe` / `config.locate` / `config.ocr` / `config.video`），不配置则继承 `config.vision` 默认值。全部 OpenAI 兼容接口。
 
 ## 集成规则
 
-- `pipeline.ts` 是唯一协调者，导入所有核心模块
-- `modality-router.ts` 静态导入所有适配器类（来自 `adapters/`）
+- `pipeline.ts` 是唯一协调者，每个任务方法独立 try/catch
+- `modality-router.ts` 注册 image + video 两种适配器
+- `chat()` 返回自由文本（describe/ocr/video_analyze），`analyze()` 返回 JSON（locate）
 - 每个模块独立 try/catch，任何异常不崩溃
 
 ## 参考
 
-- [AGENTS.md](../AGENTS.md) — 完整架构文档，见 3.4 节核心管道层详解
+- [AGENTS.md](../../AGENTS.md) — 完整架构文档，见 3.4 节核心管道层详解
