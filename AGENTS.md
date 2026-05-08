@@ -17,7 +17,7 @@
 | 持久化   | node:sqlite（内置）            |
 | 校验     | Zod                            |
 | 日志     | pino（敏感字段脱敏）           |
-| 测试     | vitest（7 文件 110 用例）      |
+| 测试     | vitest（7 文件 112 用例）      |
 
 ---
 
@@ -150,8 +150,9 @@ visual_video_analyze:
 - 直接接受 data URL（`data:image/...;base64,...` 或 `data:video/...;base64,...`）
 - 根据 MIME 前缀自动选 `image_url` / `video_url`，视频不做帧提取
 - 两个入口：
-  - `chat(dataUrls, systemPrompt, userPrompt?)` — 自由文本输出
-  - `analyze(dataUrls, systemPrompt, userPrompt?)` — JSON 输出（`response_format: json_object`）
+  - `chat(modelConfig, dataUrls, systemPrompt, userPrompt?)` — 自由文本输出
+  - `analyze(modelConfig, dataUrls, systemPrompt, userPrompt?)` — JSON 输出（`response_format: json_object`）
+- `modelConfig` 由各任务方法从 `config.describe` / `config.locate` / `config.ocr` / `config.video` 传入
 - 指数退避重试（最多 3 次）+ 120s 超时
 
 #### `parser.ts` — 响应解析器
@@ -179,7 +180,7 @@ visual_video_analyze:
 
 #### `session-manager.ts` — 会话管理器
 
-- 基于 `node:sqlite` 同步 API + WAL 模式
+- 基于 `node:sqlite` 同步 API + WAL 模式（通过 `sqlite-wrapper.ts` 兼容 Vite）
 - 聚合根 `Session`，实体 `SessionObject` / `ConversationTurn`
 - 7 个方法：createSession / getSession / upsertObjects / addConversationTurn / getRecentHistory / cleanupExpired / deleteSession
 - augment 策略：新物体从已有最大 ID+1 开始分配
@@ -283,17 +284,17 @@ Round 3: visual_locate（"表格右上角的分页器"）
 
 ## 7. 关键设计决策
 
-| 决策          | 选择                                 | 理由                                         |
-| ------------- | ------------------------------------ | -------------------------------------------- |
-| 任务调度      | 4 个独立工具 + 管道方法分发          | 每个工具专注一件事，系统提示词独立优化       |
-| 两阶段推理    | describe（自然语言）→ locate（JSON） | 先理解再定位，避免同时做两件事导致的精度下降 |
-| 上下文注入    | locate 时注入历史 describe 结果      | 模型已有完整场景认知，定位准确度显著提升     |
-| 直传 data URL | handler 一次编码，pipeline 直接消费  | 消除适配器中间层，无重复校验                 |
-| 视频处理      | 直接发送 video_url，不做帧提取       | DashScope 等视觉模型原生理解视频时序         |
-| 会话持久化    | node:sqlite (Node.js 内置)           | 零依赖、同步 API、WAL 事务安全               |
-| 分级模型配置  | 默认值 + 每工具可选覆盖              | 用户自由搭配模型，按任务类型选最合适的       |
-| 降级兜底      | 每步独立 try/catch                   | 任何单点故障不影响服务可用性                 |
-| 文件路径支持  | 直接传本地路径，内部编码 Base64      | 用户无需手动编码，使用体验等同于 dashscope   |
+| 决策          | 选择                                                      | 理由                                           |
+| ------------- | --------------------------------------------------------- | ---------------------------------------------- |
+| 任务调度      | 4 个独立工具 + 管道方法分发                               | 每个工具专注一件事，系统提示词独立优化         |
+| 两阶段推理    | describe（自然语言）→ locate（JSON）                      | 先理解再定位，避免同时做两件事导致的精度下降   |
+| 上下文注入    | locate 时注入历史 describe 结果                           | 模型已有完整场景认知，定位准确度显著提升       |
+| 直传 data URL | handler 一次编码，pipeline 直接消费                       | 消除适配器中间层，无重复校验                   |
+| 视频处理      | 直接发送 video_url，不做帧提取                            | DashScope 等视觉模型原生理解视频时序           |
+| 会话持久化    | node:sqlite (Node.js 内置)                                | 零依赖、同步 API、WAL 事务安全                 |
+| 分级模型配置  | 每工具独立三元组 (baseUrl/apiKey/model)，逐字段回退默认值 | 用户自由搭配不同厂商模型，按任务类型选最合适的 |
+| 降级兜底      | 每步独立 try/catch                                        | 任何单点故障不影响服务可用性                   |
+| 文件路径支持  | 直接传本地路径，内部编码 Base64                           | 用户无需手动编码，使用体验等同于 dashscope     |
 
 ---
 
@@ -304,7 +305,7 @@ npm run dev          # 热重载开发
 npm run build        # 编译到 dist/
 npm run lint         # ESLint 检查
 npm run typecheck    # TypeScript 类型检查
-npm test             # 运行 110 个测试
+npm test             # 运行 112 个测试
 npm start            # 启动 MCP 服务（stdio）
 ```
 

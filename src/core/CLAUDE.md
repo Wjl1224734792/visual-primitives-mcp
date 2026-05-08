@@ -36,7 +36,7 @@ visual_video_analyze:
 
 ## 模型配置
 
-每个工具方法使用独立的 `ModelConfig`（`config.describe` / `config.locate` / `config.ocr` / `config.video`），不配置则继承 `config.vision` 默认值。全部 OpenAI 兼容接口。
+每个工具方法使用独立的 `ModelConfig`（`config.describe` / `config.locate` / `config.ocr` / `config.video`），每工具可独立覆盖 baseUrl/apiKey/model 任意字段，不配则逐字段回退到 `VISION_API_BASE_URL` / `VISION_API_KEY` / `VISION_MODEL_NAME` 默认值。全部 OpenAI 兼容接口。
 
 ## 集成规则
 

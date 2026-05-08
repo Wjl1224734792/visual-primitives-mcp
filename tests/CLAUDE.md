@@ -17,8 +17,8 @@
 ## 规则
 
 - 测试数据库使用 `:memory:` 模式，不污染开发数据
-- 外部依赖 mock：VisionClient / fetch
-- `npm test` 运行全部测试用例
+- 外部依赖 mock：VisionClient / config
+- `npm test` 运行全部 112 个测试用例
 
 ## 参考
 

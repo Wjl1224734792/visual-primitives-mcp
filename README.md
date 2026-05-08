@@ -396,7 +396,8 @@ visual-primitives-mcp/
 │   │   ├── normalizer.ts           # 坐标归一化
 │   │   ├── prompt-builder.ts       # 增强提示词构建器
 │   │   ├── vision-client.ts        # OpenAI 兼容视觉客户端
-│   │   └── session-manager.ts      # SQLite 会话管理
+│   │   ├── session-manager.ts      # SQLite 会话管理
+│   │   └── sqlite-wrapper.ts       # node:sqlite Vite 兼容适配
 │   ├── templates/
 │   │   ├── describe-system.txt     # 场景描述系统提示词
 │   │   ├── locate-system.txt       # 坐标定位系统提示词
@@ -433,8 +434,9 @@ MCP Client（Claude Code / OpenCode / Codex / Claude Desktop）
 │  └───────────┬────────────────────┘  │
 │  ┌───────────▼────────────────────┐  │
 │  │  Pipeline Orchestrator (任务调度)│  │
+│  │  describe│locate│ocr│video     │  │
 │  │  ┌──────┬──────┬──────┬─────┐ │  │
-│  │  │Router│Parser│Valid.│Norm.│ │  │
+│  │  │Parser│Valid.│Norm.│PB   │ │  │
 │  │  └──┬───┴──┬───┴──┬───┴──┬─┘ │  │
 │  │     │      │      │      │    │  │
 │  │  ┌──▼──────▼──────▼──────▼─┐  │  │
@@ -442,9 +444,10 @@ MCP Client（Claude Code / OpenCode / Codex / Claude Desktop）
 │  │  └─────────────────────────┘  │  │
 │  └───────────────────────────────┘  │
 │  ┌───────────────────────────────┐  │
-│  │  Vision Client (多系统提示词)  │  │
-│  │  Modality Adapters            │  │
-│  │  Image │ Video │ Document     │  │
+│  │  Vision Client                │  │
+│  │  chat() / analyze()           │  │
+│  │  根据 data URL MIME 自动选     │  │
+│  │  image_url / video_url        │  │
 │  └───────────────────────────────┘  │
 └──────────────────────────────────────┘
 ```

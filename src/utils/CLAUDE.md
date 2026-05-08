@@ -21,4 +21,4 @@ const result = await withRetry(() => fetch(url), { maxAttempts: 3 });
 
 ## 参考
 
-- [AGENTS.md](../AGENTS.md) — 完整架构文档，见 3.6 节工具层详解
+- [AGENTS.md](../../AGENTS.md) — 完整架构文档，见 3.5 节工具层详解
