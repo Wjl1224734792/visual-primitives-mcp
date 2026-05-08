@@ -10,3 +10,4 @@ coverage/
 .agents
 .jarvis
 docs/
+.mcp.json
