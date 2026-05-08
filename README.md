@@ -25,19 +25,7 @@
 ## 前置要求
 
 - Node.js >= 22.5.0（`node:sqlite` 内置模块要求）
-- 视觉模型 API Key（推荐 [阿里云百炼平台](https://dashscope.aliyun.com/)）
-- FFmpeg：可选，仅视频处理需要。`ffmpeg-static` 会自动尝试下载，不可用时 fallback 到系统 PATH 上的 `ffmpeg`
-
-### FFmpeg 安装指引（仅视频处理用户）
-
-| 平台         | 安装方式                                                                   |
-| ------------ | -------------------------------------------------------------------------- |
-| **Windows**  | `choco install ffmpeg` 或从 [ffmpeg.org](https://ffmpeg.org) 下载放到 PATH |
-| **macOS**    | `brew install ffmpeg`                                                      |
-| **Linux**    | `apt install ffmpeg` / `yum install ffmpeg`                                |
-| **无需安装** | 不处理视频就不需要，图片/文档/文本不受影响                                 |
-
-> 视频适配器优先级：`ffmpeg-static` 内嵌二进制 → 系统 `ffmpeg` 命令 → 降级返回空数组（不崩溃）
+- 视觉模型 API Key（推荐 [阿里云百炼平台](https://dashscope.aliyuncs.com/)）
 
 ## 推荐视觉模型
 
@@ -203,12 +191,6 @@ MCP_TRANSPORT=http-stream PORT=3000 npm start
 | **`visual_ocr`**           | 文字/表格提取      | `image_path`, `prompt?`                                           |
 | **`visual_video_analyze`** | 视频内容分析       | `video_path`, `prompt?`, `session_id?`                            |
 
-### 兼容旧版工具
-
-| 工具                               | 说明                                           |
-| ---------------------------------- | ---------------------------------------------- |
-| **`multimodal_grounding_augment`** | 兼容别名，内部转发到新管道。推荐使用新工具替代 |
-
 ### `visual_describe` — 场景描述
 
 对图片/截图进行全面、细致的自然语言描述。专注场景理解，不要求坐标输出。
@@ -321,18 +303,18 @@ MCP_TRANSPORT=http-stream PORT=3000 npm start
 
 ## 支持的输入格式
 
-| 格式 | 扩展名          | 大小限制 | 说明                        |
-| ---- | --------------- | -------- | --------------------------- |
-| JPEG | `.jpg`, `.jpeg` | <= 20MB  | 直接传本地路径              |
-| PNG  | `.png`          | <= 20MB  | 直接传本地路径              |
-| GIF  | `.gif`          | <= 20MB  | 直接传本地路径              |
-| WebP | `.webp`         | <= 20MB  | 直接传本地路径              |
-| BMP  | `.bmp`          | <= 20MB  | 直接传本地路径              |
-| MP4  | `.mp4`          | <= 100MB | FFmpeg 抽帧，默认最多 10 帧 |
-| MOV  | `.mov`          | <= 100MB | 同上                        |
-| AVI  | `.avi`          | <= 100MB | 同上                        |
-| MKV  | `.mkv`          | <= 100MB | 同上                        |
-| WebM | `.webm`         | <= 100MB | 同上                        |
+| 格式 | 扩展名          | 大小限制 | 说明                             |
+| ---- | --------------- | -------- | -------------------------------- |
+| JPEG | `.jpg`, `.jpeg` | <= 20MB  | 直接传本地路径                   |
+| PNG  | `.png`          | <= 20MB  | 直接传本地路径                   |
+| GIF  | `.gif`          | <= 20MB  | 直接传本地路径                   |
+| WebP | `.webp`         | <= 20MB  | 直接传本地路径                   |
+| BMP  | `.bmp`          | <= 20MB  | 直接传本地路径                   |
+| MP4  | `.mp4`          | <= 100MB | 直接发送 video_url，模型原生理解 |
+| MOV  | `.mov`          | <= 100MB | 同上                             |
+| AVI  | `.avi`          | <= 100MB | 同上                             |
+| MKV  | `.mkv`          | <= 100MB | 同上                             |
+| WebM | `.webm`         | <= 100MB | 同上                             |
 
 ## 开发指南
 
@@ -373,28 +355,20 @@ visual-primitives-mcp/
 │   │   └── factory.ts              # 传输工厂
 │   ├── handlers/
 │   │   ├── CLAUDE.md               # 处理器层指引
-│   │   └── tool-handlers.ts        # MCP 工具注册（5 个工具）
+│   │   └── tool-handlers.ts        # MCP 工具注册（4 个工具）
 │   ├── core/
 │   │   ├── CLAUDE.md               # 核心管道层指引
 │   │   ├── pipeline.ts             # 管道编排器（任务调度）
-│   │   ├── modality-router.ts      # 模态路由器
 │   │   ├── parser.ts               # JSON 解析与容错
 │   │   ├── validator.ts            # 坐标与物体验证
 │   │   ├── normalizer.ts           # 坐标归一化
 │   │   ├── prompt-builder.ts       # 增强提示词构建器
 │   │   ├── vision-client.ts        # OpenAI 兼容视觉客户端
-│   │   ├── session-manager.ts      # SQLite 会话管理
-│   │   └── adapters/
-│   │       ├── CLAUDE.md           # 适配器层指引
-│   │       ├── image-adapter.ts    # 图片适配器
-│   │       ├── video-adapter.ts    # 视频适配器
-│   │       └── document-adapter.ts # 文档适配器
+│   │   └── session-manager.ts      # SQLite 会话管理
 │   ├── templates/
 │   │   ├── describe-system.txt     # 场景描述系统提示词
 │   │   ├── locate-system.txt       # 坐标定位系统提示词
-│   │   ├── ocr-system.txt          # OCR 系统提示词
-│   │   ├── vision-system.txt       # 兼容旧版系统提示词
-│   │   └── augmented-prompt.txt    # 增强提示词模板
+│   │   └── ocr-system.txt          # OCR 系统提示词
 │   └── utils/
 │       ├── CLAUDE.md               # 工具层指引
 │       ├── logger.ts               # 结构化日志
@@ -452,8 +426,6 @@ MCP Client（Claude Code / OpenCode / Codex / Claude Desktop）
 - **参数校验**：Zod
 - **日志**：pino
 - **持久化**：node:sqlite（内置，WAL 模式）
-- **视频处理**：ffmpeg-static + 系统 FFmpeg 兜底
-- **文档渲染**：sharp + pdf-poppler
 - **测试**：vitest
 
 ## License

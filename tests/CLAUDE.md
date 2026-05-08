@@ -4,17 +4,15 @@
 
 ## 测试文件
 
-| 文件                             | 测试对象               | 策略         |
-| -------------------------------- | ---------------------- | ------------ |
-| `config.test.ts`                 | `loadConfig()`         | TDD          |
-| `retry.test.ts`                  | `withRetry()`          | TDD          |
-| `parser.test.ts`                 | `parseResponse()`      | TDD          |
-| `validator.test.ts`              | `validateObjects()`    | TDD          |
-| `normalizer.test.ts`             | `normalizeObjects()`   | TDD          |
-| `session-manager.test.ts`        | `SessionManager`       | DDD+TDD      |
-| `pipeline.test.ts`               | `PipelineOrchestrator` | 集成（mock） |
-| `adapters/image-adapter.test.ts` | `ImageAdapter`         | 直接         |
-| `adapters/video-adapter.test.ts` | `VideoAdapter`         | 直接         |
+| 文件                      | 测试对象               | 策略         |
+| ------------------------- | ---------------------- | ------------ |
+| `config.test.ts`          | `loadConfig()`         | TDD          |
+| `retry.test.ts`           | `withRetry()`          | TDD          |
+| `parser.test.ts`          | `parseResponse()`      | TDD          |
+| `validator.test.ts`       | `validateObjects()`    | TDD          |
+| `normalizer.test.ts`      | `normalizeObjects()`   | TDD          |
+| `session-manager.test.ts` | `SessionManager`       | DDD+TDD      |
+| `pipeline.test.ts`        | `PipelineOrchestrator` | 集成（mock） |
 
 ## 规则
 

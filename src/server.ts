@@ -22,7 +22,6 @@ import { logger } from './utils/logger.js';
 import { SessionManager } from './core/session-manager.js';
 import { VisionClient } from './core/vision-client.js';
 import { PipelineOrchestrator } from './core/pipeline.js';
-import { modalityRouter } from './core/modality-router.js';
 import { registerTool } from './handlers/tool-handlers.js';
 import { createTransport } from './transport/factory.js';
 
@@ -45,11 +44,7 @@ async function main(): Promise<void> {
   const visionClient = new VisionClient();
 
   // PipelineOrchestrator：多模态增强提示词管道编排器
-  const pipeline = new PipelineOrchestrator(
-    sessionManager,
-    visionClient,
-    modalityRouter
-  );
+  const pipeline = new PipelineOrchestrator(sessionManager, visionClient);
 
   // ---- 步骤 2：创建 McpServer 并注册工具 ----
 

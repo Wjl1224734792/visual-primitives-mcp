@@ -18,7 +18,7 @@ visual_ocr:
   VisionClient.chat(ocr-system) → 文字内容 → 直接返回
 
 visual_video_analyze:
-  VideoAdapter 透传 → VisionClient.chat(describe-system) → 返回描述
+  VisionClient.chat(describe-system) → 返回描述
 ```
 
 ## 文件
@@ -26,7 +26,6 @@ visual_video_analyze:
 | 文件                 | 职责                                        |
 | -------------------- | ------------------------------------------- |
 | `pipeline.ts`        | **管道编排器** — 任务调度核心，4 个方法     |
-| `modality-router.ts` | **模态路由器** — media_type → Adapter 分发  |
 | `parser.ts`          | JSON 解析 + 容错（仅 locate）               |
 | `validator.ts`       | 坐标校验（仅 locate）                       |
 | `normalizer.ts`      | 精度归一化（仅 locate）                     |
@@ -42,7 +41,7 @@ visual_video_analyze:
 ## 集成规则
 
 - `pipeline.ts` 是唯一协调者，每个任务方法独立 try/catch
-- `modality-router.ts` 注册 image + video 两种适配器
+- pipeline 直接传 data URL 到 VisionClient，无中间适配层
 - `chat()` 返回自由文本（describe/ocr/video_analyze），`analyze()` 返回 JSON（locate）
 - 每个模块独立 try/catch，任何异常不崩溃
 

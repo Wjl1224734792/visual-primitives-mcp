@@ -4,29 +4,7 @@
  * 使用 mock 隔离外部依赖，测试 PipelineOrchestrator 的 4 个任务方法。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type {
-  Session,
-  SessionObject,
-  SessionContext,
-  Base64Image,
-  MediaAdapter,
-} from '../src/types.js';
-
-// ---- Mock 适配器 ----
-
-class MockImageAdapter implements MediaAdapter {
-  readonly mediaType = 'image';
-  adapt(_input: string): Promise<Base64Image[]> {
-    return Promise.resolve([{ base64: 'mock-data', mime_type: 'image/jpeg' }]);
-  }
-}
-
-class MockEmptyAdapter implements MediaAdapter {
-  readonly mediaType = 'broken';
-  adapt(_input: string): Promise<Base64Image[]> {
-    return Promise.resolve([]);
-  }
-}
+import type { Session, SessionObject, SessionContext } from '../src/types.js';
 
 // ---- 辅助 ----
 
@@ -162,8 +140,7 @@ describe('PipelineOrchestrator', () => {
   let PipelineOrchestrator: {
     PipelineOrchestrator: new (
       sm: Record<string, unknown>,
-      vc: Record<string, unknown>,
-      router: Record<string, unknown>
+      vc: Record<string, unknown>
     ) => {
       describe: (
         input: Record<string, unknown>
@@ -176,10 +153,6 @@ describe('PipelineOrchestrator', () => {
         input: Record<string, unknown>
       ) => Promise<Record<string, unknown>>;
     };
-  };
-  let ModalityRouter: {
-    ModalityRouter: new () => Record<string, unknown>;
-    ModalityRouterError: new (msg: string) => Error;
   };
 
   let parseResponseMock: ReturnType<typeof vi.fn>;
@@ -218,7 +191,6 @@ describe('PipelineOrchestrator', () => {
     );
 
     PipelineOrchestrator = await import('../src/core/pipeline.js');
-    ModalityRouter = await import('../src/core/modality-router.js');
   });
 
   // ============================================================
@@ -248,15 +220,9 @@ describe('PipelineOrchestrator', () => {
         analyze: vi.fn(),
       };
 
-      const router = new ModalityRouter.ModalityRouter() as {
-        register: (t: string, a: MediaAdapter) => void;
-      };
-      router.register('image', new MockImageAdapter());
-
       const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
         mockSessionManager,
-        mockVisionClient,
-        router
+        mockVisionClient
       );
       const result = await pipeline.describe({
         sessionId: 'd1',
@@ -269,43 +235,6 @@ describe('PipelineOrchestrator', () => {
       expect(result.round).toBeGreaterThan(0);
       expect(mockVisionClient.chat).toHaveBeenCalled();
       expect(mockSessionManager.addConversationTurn).toHaveBeenCalledTimes(2);
-    });
-
-    it('适配器返回空数组时返回降级描述', async () => {
-      const mockSessionManager = {
-        getSession: vi.fn().mockReturnValue({
-          session: {
-            session_id: 'd2',
-            media_type: 'broken',
-            created_at: Date.now() / 1000,
-            last_accessed_at: Date.now() / 1000,
-          },
-          objects: [],
-          recentHistory: [],
-        } as SessionContext),
-        createSession: vi.fn(),
-        addConversationTurn: vi.fn(),
-      };
-
-      const mockVisionClient = { chat: vi.fn(), analyze: vi.fn() };
-      const router = new ModalityRouter.ModalityRouter() as {
-        register: (t: string, a: MediaAdapter) => void;
-      };
-      router.register('broken', new MockEmptyAdapter());
-
-      const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
-        mockSessionManager,
-        mockVisionClient,
-        router
-      );
-      const result = await pipeline.describe({
-        sessionId: 'd2',
-        imageBase64: 'bad',
-        mediaType: 'broken',
-      });
-
-      expect(result.description).toContain('降级');
-      expect(mockVisionClient.chat).not.toHaveBeenCalled();
     });
 
     it('VisionClient 异常时返回降级描述', async () => {
@@ -329,15 +258,9 @@ describe('PipelineOrchestrator', () => {
         analyze: vi.fn(),
       };
 
-      const router = new ModalityRouter.ModalityRouter() as {
-        register: (t: string, a: MediaAdapter) => void;
-      };
-      router.register('image', new MockImageAdapter());
-
       const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
         mockSessionManager,
-        mockVisionClient,
-        router
+        mockVisionClient
       );
       const result = await pipeline.describe({
         sessionId: 'd3',
@@ -381,15 +304,9 @@ describe('PipelineOrchestrator', () => {
         analyze: vi.fn(),
       };
 
-      const router = new ModalityRouter.ModalityRouter() as {
-        register: (t: string, a: MediaAdapter) => void;
-      };
-      router.register('image', new MockImageAdapter());
-
       const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
         mockSessionManager,
-        mockVisionClient,
-        router
+        mockVisionClient
       );
       const result = await pipeline.locate({
         sessionId: 'loc-new',
@@ -438,15 +355,10 @@ describe('PipelineOrchestrator', () => {
       };
 
       const mockVisionClient = { chat: vi.fn(), analyze: vi.fn() };
-      const router = new ModalityRouter.ModalityRouter() as {
-        register: (t: string, a: MediaAdapter) => void;
-      };
-      router.register('image', new MockImageAdapter());
 
       const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
         mockSessionManager,
-        mockVisionClient,
-        router
+        mockVisionClient
       );
       const result = await pipeline.locate({
         sessionId: 'loc-cache',
@@ -484,15 +396,9 @@ describe('PipelineOrchestrator', () => {
         analyze: vi.fn(),
       };
 
-      const router = new ModalityRouter.ModalityRouter() as {
-        register: (t: string, a: MediaAdapter) => void;
-      };
-      router.register('image', new MockImageAdapter());
-
       const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
         mockSessionManager,
-        mockVisionClient,
-        router
+        mockVisionClient
       );
       const result = await pipeline.locate({
         sessionId: 'loc-fail',
@@ -517,15 +423,9 @@ describe('PipelineOrchestrator', () => {
         analyze: vi.fn(),
       };
 
-      const router = new ModalityRouter.ModalityRouter() as {
-        register: (t: string, a: MediaAdapter) => void;
-      };
-      router.register('image', new MockImageAdapter());
-
       const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
         {} as Record<string, unknown>,
-        mockVisionClient,
-        router
+        mockVisionClient
       );
       const result = await pipeline.ocr({
         imageBase64: 'test',
@@ -536,41 +436,15 @@ describe('PipelineOrchestrator', () => {
       expect(mockVisionClient.chat).toHaveBeenCalled();
     });
 
-    it('适配器返回空数组时返回降级文本', async () => {
-      const mockVisionClient = { chat: vi.fn(), analyze: vi.fn() };
-      const router = new ModalityRouter.ModalityRouter() as {
-        register: (t: string, a: MediaAdapter) => void;
-      };
-      router.register('broken', new MockEmptyAdapter());
-
-      const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
-        {} as Record<string, unknown>,
-        mockVisionClient,
-        router
-      );
-      const result = await pipeline.ocr({
-        imageBase64: 'bad',
-        mediaType: 'broken',
-      });
-
-      expect(result).toContain('降级');
-      expect(mockVisionClient.chat).not.toHaveBeenCalled();
-    });
-
     it('VisionClient 异常时返回降级文本', async () => {
       const mockVisionClient = {
         chat: vi.fn().mockRejectedValue(new Error('服务不可用')),
         analyze: vi.fn(),
       };
-      const router = new ModalityRouter.ModalityRouter() as {
-        register: (t: string, a: MediaAdapter) => void;
-      };
-      router.register('image', new MockImageAdapter());
 
       const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
         {} as Record<string, unknown>,
-        mockVisionClient,
-        router
+        mockVisionClient
       );
       const result = await pipeline.ocr({
         imageBase64: 'test',
@@ -607,15 +481,9 @@ describe('PipelineOrchestrator', () => {
         analyze: vi.fn(),
       };
 
-      const router = new ModalityRouter.ModalityRouter() as {
-        register: (t: string, a: MediaAdapter) => void;
-      };
-      router.register('video', new MockImageAdapter());
-
       const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
         mockSessionManager,
-        mockVisionClient,
-        router
+        mockVisionClient
       );
       const result = await pipeline.videoAnalyze({
         sessionId: 'v1',
@@ -627,77 +495,6 @@ describe('PipelineOrchestrator', () => {
       expect(result.description).toBe('视频展示了一个人在公园散步');
       expect(result.round).toBeGreaterThan(0);
       expect(mockVisionClient.chat).toHaveBeenCalled();
-    });
-
-    it('适配器返回空数组时返回降级描述', async () => {
-      const mockSessionManager = {
-        getSession: vi.fn().mockReturnValue({
-          session: {
-            session_id: 'v2',
-            media_type: 'broken',
-            created_at: Date.now() / 1000,
-            last_accessed_at: Date.now() / 1000,
-          },
-          objects: [],
-          recentHistory: [],
-        } as SessionContext),
-        createSession: vi.fn(),
-        addConversationTurn: vi.fn(),
-      };
-
-      const mockVisionClient = { chat: vi.fn(), analyze: vi.fn() };
-      const router = new ModalityRouter.ModalityRouter() as {
-        register: (t: string, a: MediaAdapter) => void;
-      };
-      router.register('broken', new MockEmptyAdapter());
-
-      const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
-        mockSessionManager,
-        mockVisionClient,
-        router
-      );
-      const result = await pipeline.videoAnalyze({
-        sessionId: 'v2',
-        videoBase64: 'bad',
-        mediaType: 'broken',
-      });
-
-      expect(result.description).toContain('降级');
-      expect(mockVisionClient.chat).not.toHaveBeenCalled();
-    });
-  });
-
-  // ============================================================
-  // ModalityRouter 独立测试
-  // ============================================================
-  describe('ModalityRouter', () => {
-    it('register 后 route 应返回对应适配器', () => {
-      const router = new ModalityRouter.ModalityRouter() as {
-        register: (t: string, a: MediaAdapter) => void;
-        route: (t: string) => MediaAdapter;
-      };
-
-      const adapter = new MockImageAdapter();
-      router.register('image', adapter);
-      expect(router.route('image')).toBe(adapter);
-    });
-
-    it('route 未知类型应抛出 ModalityRouterError', () => {
-      const router = new ModalityRouter.ModalityRouter() as {
-        register: (t: string, a: MediaAdapter) => void;
-        route: (t: string) => MediaAdapter;
-      };
-
-      router.register('image', new MockImageAdapter());
-      expect(() => router.route('audio')).toThrow();
-      try {
-        router.route('audio');
-      } catch (error) {
-        const err = error as Error;
-        expect(err.name).toBe('ModalityRouterError');
-        expect(err.message).toContain('audio');
-        expect(err.message).toContain('image');
-      }
     });
   });
 });

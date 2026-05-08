@@ -2,7 +2,7 @@
  * 管道编排器（Pipeline Orchestrator）
  *
  * 任务调度核心：4 个任务方法，每个使用独立的模型配置和系统提示词。
- * 协调 SessionManager + ModalityRouter + VisionClient + Parser + Validator + Normalizer。
+ * 协调 SessionManager + VisionClient + Parser + Validator + Normalizer。
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -25,7 +25,6 @@ import type {
 import { config } from '../config.js';
 import { SessionManager } from './session-manager.js';
 import { VisionClient } from './vision-client.js';
-import { ModalityRouter } from './modality-router.js';
 import { parseResponse } from './parser.js';
 import { validateObjects } from './validator.js';
 import { normalizeObjects } from './normalizer.js';
@@ -115,16 +114,10 @@ function contextFromHistory(history: ConversationTurn[]): string {
 export class PipelineOrchestrator {
   private sessionManager: SessionManager;
   private visionClient: VisionClient;
-  private router: ModalityRouter;
 
-  constructor(
-    sessionManager: SessionManager,
-    visionClient: VisionClient,
-    router: ModalityRouter
-  ) {
+  constructor(sessionManager: SessionManager, visionClient: VisionClient) {
     this.sessionManager = sessionManager;
     this.visionClient = visionClient;
-    this.router = router;
   }
 
   /** 场景描述：自然语言输出，存入会话供 locate 注入上下文 */
@@ -137,21 +130,11 @@ export class PipelineOrchestrator {
     const round = nextRound(this.sessionManager, sessionId);
 
     try {
-      const adapter = this.router.route(mediaType);
-      const images = await adapter.adapt(imageBase64);
-
-      if (images.length === 0) {
-        return {
-          sessionId,
-          description: '[降级] 无法解析图像，请检查文件格式。',
-          round,
-        };
-      }
-
+      const dataUrls = [imageBase64];
       const userPrompt = prompt ?? '请详细描述这张图片/截图的内容。';
       const content = await this.visionClient.chat(
         config.describe,
-        images,
+        dataUrls,
         describeSystemPrompt,
         userPrompt
       );
@@ -207,52 +190,48 @@ export class PipelineOrchestrator {
 
     if (mediaType && imageBase64) {
       try {
-        const adapter = this.router.route(mediaType);
-        const images = await adapter.adapt(imageBase64);
+        fromCache = false;
+        const dataUrls = [imageBase64];
+        const historyContext = contextFromHistory(recentHistory);
+        const userPrompt = historyContext
+          ? `${historyContext}\n\n现在请定位以下目标物体：${question}`
+          : question;
 
-        if (images.length > 0) {
-          fromCache = false;
-          const historyContext = contextFromHistory(recentHistory);
-          const userPrompt = historyContext
-            ? `${historyContext}\n\n现在请定位以下目标物体：${question}`
-            : question;
+        const raw = await this.visionClient.analyze(
+          config.locate,
+          dataUrls,
+          locateSystemPrompt,
+          userPrompt
+        );
 
-          const raw = await this.visionClient.analyze(
-            config.locate,
-            images,
-            locateSystemPrompt,
-            userPrompt
-          );
+        const parsed: VisualAnalysisResult = parseResponse(raw);
+        const precision = coordinatePrecision === '0-100' ? 100 : 1000;
+        validateObjects(parsed.objects, precision);
 
-          const parsed: VisualAnalysisResult = parseResponse(raw);
-          const precision = coordinatePrecision === '0-100' ? 100 : 1000;
-          validateObjects(parsed.objects, precision);
-
-          let normalized = parsed.objects;
-          if (precision === 100) {
-            normalized = normalizeObjects(parsed.objects, 100, 1000);
-          }
-
-          const sessionObjects = visualToSessionObjects(
-            normalized,
-            mediaType,
-            round
-          );
-
-          if (sessionObjects.length > 0) {
-            this.sessionManager.upsertObjects(
-              sessionId,
-              sessionObjects,
-              'augment'
-            );
-          }
-
-          visualAnalysis = {
-            reasoning: parsed.reasoning,
-            objects: normalized,
-            spatial_relationships: parsed.spatial_relationships,
-          };
+        let normalized = parsed.objects;
+        if (precision === 100) {
+          normalized = normalizeObjects(parsed.objects, 100, 1000);
         }
+
+        const sessionObjects = visualToSessionObjects(
+          normalized,
+          mediaType,
+          round
+        );
+
+        if (sessionObjects.length > 0) {
+          this.sessionManager.upsertObjects(
+            sessionId,
+            sessionObjects,
+            'augment'
+          );
+        }
+
+        visualAnalysis = {
+          reasoning: parsed.reasoning,
+          objects: normalized,
+          spatial_relationships: parsed.spatial_relationships,
+        };
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         logger.warn(
@@ -297,19 +276,13 @@ export class PipelineOrchestrator {
     logger.info({ mediaType }, 'Pipeline.ocr: 开始');
 
     try {
-      const adapter = this.router.route(mediaType);
-      const images = await adapter.adapt(imageBase64);
-
-      if (images.length === 0) {
-        return '[降级] 无法解析图像，请检查文件格式。';
-      }
-
+      const dataUrls = [imageBase64];
       const userPrompt =
         prompt ??
         '请提取并输出这张图片中的所有文字内容。如有表格请保持表格结构。';
       const content = await this.visionClient.chat(
         config.ocr,
-        images,
+        dataUrls,
         ocrSystemPrompt,
         userPrompt
       );
@@ -332,23 +305,13 @@ export class PipelineOrchestrator {
     const round = nextRound(this.sessionManager, sessionId);
 
     try {
-      const adapter = this.router.route(mediaType);
-      const images = await adapter.adapt(videoBase64);
-
-      if (images.length === 0) {
-        return {
-          sessionId,
-          description: '[降级] 无法解析视频，请检查文件格式。',
-          round,
-        };
-      }
-
+      const dataUrls = [videoBase64];
       const userPrompt =
         prompt ??
         '请分析这个视频的内容，包括：发生了什么事件或动作、出现了哪些人物或物体、场景环境、整体氛围。';
       const content = await this.visionClient.chat(
         config.video,
-        images,
+        dataUrls,
         describeSystemPrompt,
         userPrompt
       );

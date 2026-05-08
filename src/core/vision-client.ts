@@ -6,34 +6,26 @@
  *   - chat()：自由文本输出（describe, ocr, video_analyze）
  *   - analyze()：JSON 输出（locate 坐标定位）
  *
- * 图片用 image_url，视频用 video_url，直接发送不做帧提取。
+ * 直接接受 data URL，根据 MIME 前缀自动选 image_url / video_url。
  * 指数退避重试（最多 3 次）。
  */
 import { withRetry } from '../utils/retry.js';
 import { logger } from '../utils/logger.js';
-import type { Base64Image, ModelConfig } from '../types.js';
-
-const VIDEO_MIMES = new Set([
-  'video/mp4',
-  'video/avi',
-  'video/mov',
-  'video/mkv',
-  'video/webm',
-]);
+import type { ModelConfig } from '../types.js';
 
 function normalizeBaseUrl(url: string): string {
   return url.endsWith('/') ? url.slice(0, -1) : url;
 }
 
 function buildMessages(
-  images: Base64Image[],
+  dataUrls: string[],
   systemPrompt: string,
   userPrompt?: string
 ): Array<Record<string, unknown>> {
   const userContent: Record<string, unknown>[] = [];
-  for (const img of images) {
-    const dataUrl = `data:${img.mime_type};base64,${img.base64}`;
-    if (VIDEO_MIMES.has(img.mime_type)) {
+  for (const dataUrl of dataUrls) {
+    const isVideo = /^data:video\//i.test(dataUrl);
+    if (isVideo) {
       userContent.push({ type: 'video_url', video_url: { url: dataUrl } });
     } else {
       userContent.push({ type: 'image_url', image_url: { url: dataUrl } });
@@ -81,12 +73,12 @@ export class VisionClient {
    */
   async chat(
     modelConfig: ModelConfig,
-    images: Base64Image[],
+    dataUrls: string[],
     systemPrompt: string,
     userPrompt?: string
   ): Promise<string> {
     const url = `${normalizeBaseUrl(modelConfig.baseUrl)}/chat/completions`;
-    const messages = buildMessages(images, systemPrompt, userPrompt);
+    const messages = buildMessages(dataUrls, systemPrompt, userPrompt);
 
     const body: Record<string, unknown> = {
       model: modelConfig.model,
@@ -95,7 +87,7 @@ export class VisionClient {
     };
 
     logger.info(
-      { model: modelConfig.model, imageCount: images.length },
+      { model: modelConfig.model, dataUrlCount: dataUrls.length },
       'VisionClient.chat: 开始调用'
     );
 
@@ -116,12 +108,12 @@ export class VisionClient {
    */
   async analyze(
     modelConfig: ModelConfig,
-    images: Base64Image[],
+    dataUrls: string[],
     systemPrompt: string,
     userPrompt?: string
   ): Promise<string> {
     const url = `${normalizeBaseUrl(modelConfig.baseUrl)}/chat/completions`;
-    const messages = buildMessages(images, systemPrompt, userPrompt);
+    const messages = buildMessages(dataUrls, systemPrompt, userPrompt);
 
     const body: Record<string, unknown> = {
       model: modelConfig.model,
@@ -131,7 +123,7 @@ export class VisionClient {
     };
 
     logger.info(
-      { model: modelConfig.model, imageCount: images.length },
+      { model: modelConfig.model, dataUrlCount: dataUrls.length },
       'VisionClient.analyze: 开始调用'
     );
 

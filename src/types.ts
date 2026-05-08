@@ -28,18 +28,6 @@ export interface VisualAnalysisResult {
   spatial_relationships?: string[];
 }
 
-/** 适配器统一输出的 Base64 数据 */
-export interface Base64Image {
-  base64: string;
-  mime_type: string;
-}
-
-/** 媒体适配器接口 */
-export interface MediaAdapter {
-  readonly mediaType: string;
-  adapt(input: string): Promise<Base64Image[]>;
-}
-
 /** 会话物体（持久化到 SQLite 的扁平结构） */
 export interface SessionObject {
   id?: number;

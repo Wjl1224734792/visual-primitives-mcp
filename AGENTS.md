@@ -17,7 +17,7 @@
 | 持久化   | node:sqlite（内置）            |
 | 校验     | Zod                            |
 | 日志     | pino（敏感字段脱敏）           |
-| 测试     | vitest（10 文件 153 用例）     |
+| 测试     | vitest（7 文件 110 用例）      |
 
 ---
 
@@ -33,23 +33,19 @@
 │  factory.ts                  │
 ├──────────────────────────────┤
 │      处理器层 (handlers/)    │
-│  tool-handlers.ts (5 工具)   │
+│  tool-handlers.ts (4 工具)   │
+│  encodeFileBase64() 读文件   │
 ├──────────────────────────────┤
 │       核心管道层 (core/)     │
 │  ┌────────────────────────┐  │
 │  │ pipeline.ts (任务调度)  │  │
 │  │  describe | locate     │  │
 │  │  ocr | video_analyze   │  │
-│  │ modality-router.ts     │  │
 │  │ parser.ts / validator  │  │
 │  │ normalizer.ts          │  │
 │  │ prompt-builder.ts      │  │
 │  │ vision-client.ts       │  │
 │  │ session-manager.ts     │  │
-│  └────────────────────────┘  │
-│  ┌────────────────────────┐  │
-│  │   适配器层 (adapters/) │  │
-│  │  Image / Video         │  │
 │  └────────────────────────┘  │
 ├──────────────────────────────┤
 │       工具层 (utils/)        │
@@ -59,8 +55,6 @@
 │  describe-system.txt         │
 │  locate-system.txt           │
 │  ocr-system.txt              │
-│  vision-system.txt (兼容)    │
-│  augmented-prompt.txt        │
 └──────────────────────────────┘
 ```
 
@@ -73,7 +67,7 @@
 #### `server.ts` — 服务主入口
 
 - 初始化链：`SessionManager → VisionClient → PipelineOrchestrator → McpServer`
-- 注册 5 个工具（4 新 + 1 兼容）
+- 注册 4 个视觉任务工具
 - 根据 `MCP_TRANSPORT` 环境变量选择传输模式（stdio / sse / http-stream）
 - Hono 仅在 SSE/HTTP Stream 模式动态加载，stdio 零开销
 - 启动 60s 间隔的 TTL 会话清理定时器
@@ -82,16 +76,16 @@
 #### `config.ts` — 配置体系
 
 - Zod schema 校验 12 个环境变量（3 必填 9 可选）
+- 分级模型配置：默认值 + 每个工具独立覆盖
 - 必填项缺失时拒绝启动并输出明确错误
 - `DB_PATH` 目录不存在时自动 `mkdirSync`
-- 导出单例 `config: AppConfig`（懒加载）
+- 导出单例 `config: AppConfig`
 
 #### `types.ts` — 共享类型
 
 - 所有接口/类型统一定义于此，全项目只读引用
-- 核心：`MediaAdapter`, `AppConfig`, `PipelineInput/Output`, `SessionContext`
-- 新增：`TaskType`, `DescribeInput/Output`, `LocateInput/Output`, `OcrInput`, `VideoAnalyzeInput/Output`
-- 冻结点：此文件完成后不再修改签名
+- 核心：`AppConfig`, `ModelConfig`, `SessionContext`
+- 任务输入/输出：`DescribeInput/Output`, `LocateInput/Output`, `OcrInput`, `VideoAnalyzeInput/Output`
 
 ---
 
@@ -102,7 +96,6 @@
 - `createTransport(mode)` 返回对应传输实例
 - stdio → `StdioServerTransport`（原生 MCP SDK）
 - sse/http-stream → `StreamableHTTPServerTransport`（stateless 模式）
-- Hono 仅做健康检查端点，MCP 消息由 SDK 处理
 
 ---
 
@@ -110,17 +103,18 @@
 
 #### `tool-handlers.ts` — MCP 工具注册
 
-注册 5 个工具，每个工具聚焦单一任务：
+注册 4 个工具，每个工具聚焦单一任务：
 
-| 工具名                         | 任务                   | 系统提示词            |
-| ------------------------------ | ---------------------- | --------------------- |
-| `visual_describe`              | 场景描述，自然语言输出 | `describe-system.txt` |
-| `visual_locate`                | 坐标定位，JSON 输出    | `locate-system.txt`   |
-| `visual_ocr`                   | 文字/表格提取          | `ocr-system.txt`      |
-| `visual_video_analyze`         | 视频内容分析           | `describe-system.txt` |
-| `multimodal_grounding_augment` | 兼容旧版，内部转发     | `vision-system.txt`   |
+| 工具名                 | 任务                   | 系统提示词            |
+| ---------------------- | ---------------------- | --------------------- |
+| `visual_describe`      | 场景描述，自然语言输出 | `describe-system.txt` |
+| `visual_locate`        | 坐标定位，JSON 输出    | `locate-system.txt`   |
+| `visual_ocr`           | 文字/表格提取          | `ocr-system.txt`      |
+| `visual_video_analyze` | 视频内容分析           | `describe-system.txt` |
 
-每个工具独立 Zod 校验，自动生成 `session_id`，调用 PipelineOrchestrator 对应方法，返回 MCP 标准响应格式。
+- 每个工具独立 Zod 校验，自动生成 `session_id`
+- `encodeFileBase64()` 读取本地文件 → Base64 data URL
+- 文件格式和大小校验在 handler 层一次完成，pipeline 直接消费 data URL
 
 ---
 
@@ -128,37 +122,37 @@
 
 #### `pipeline.ts` — 管道编排器（任务调度核心）
 
-替代旧版单一 `execute()` 方法，提供任务调度：
+提供 4 个独立任务方法：
 
 ```
 visual_describe:
-  1. 路由适配器 → Base64Image[]
-  2. VisionClient.chat(describe-system) → 自然语言描述
-  3. 存储描述到会话历史 → 返回
+  1. 直接传 data URL → VisionClient.chat(describe-system) → 自然语言描述
+  2. 存储描述到会话历史 → 返回
 
 visual_locate:
-  1. [可选] 新媒体 → 路由适配器 → VisionClient
+  1. [可选] 新媒体 → VisionClient.analyze(locate-system) → JSON
   2. 注入会话上下文中之前的 describe 结果
-  3. VisionClient.chat(locate-system) → JSON
-  4. 解析/校验/归一化坐标 → 入库 → 返回
+  3. 解析/校验/归一化坐标 → 入库 → 返回
 
 visual_ocr:
-  1. 路由适配器 → Base64Image[]
-  2. VisionClient.chat(ocr-system) → 返回文字
+  1. data URL → VisionClient.chat(ocr-system) → 返回文字
 
 visual_video_analyze:
-  1. VideoAdapter 抽帧 → Base64Image[]
-  2. VisionClient.chat(describe-system) → 返回描述
+  1. data URL → VisionClient.chat(describe-system) → 返回描述
 ```
 
-旧版 `execute()` 保留，转发到 locate 管道以兼容旧版调用方。
+- PipelineOrchestrator 只依赖 SessionManager + VisionClient，无中间适配层
+- data URL 由 handler 的 `encodeFileBase64()` 一次性准备好，pipeline 直接消费
 
-#### `modality-router.ts` — 模态路由器
+#### `vision-client.ts` — 视觉模型客户端
 
-- 注册表模式：`Map<string, MediaAdapter>`
-- 预注册 image / video 两种媒体类型
-- 单例导出 `modalityRouter`
-- 未知类型抛 `ModalityRouterError`
+- OpenAI Chat Completions 兼容接口
+- 直接接受 data URL（`data:image/...;base64,...` 或 `data:video/...;base64,...`）
+- 根据 MIME 前缀自动选 `image_url` / `video_url`，视频不做帧提取
+- 两个入口：
+  - `chat(dataUrls, systemPrompt, userPrompt?)` — 自由文本输出
+  - `analyze(dataUrls, systemPrompt, userPrompt?)` — JSON 输出（`response_format: json_object`）
+- 指数退避重试（最多 3 次）+ 120s 超时
 
 #### `parser.ts` — 响应解析器
 
@@ -182,17 +176,6 @@ visual_video_analyze:
 
 - 输出结构：`[多模态空间信息] → [推理规则] → [会话历史] → [用户问题]`
 - 会话历史注入包含之前的 describe 结果，为 locate 提供上下文
-- 按模态类型分区域：图像区域 / 视频关键帧索引
-
-#### `vision-client.ts` — 视觉模型客户端
-
-- OpenAI Chat Completions 兼容接口
-- 两个入口：
-  - `analyze(images, systemPrompt)` — 旧版兼容，输出 JSON
-  - `chat(images, systemPrompt, userPrompt?)` — 新版通用，输出自由文本
-- 多图单次请求（视频多帧在同一 messages 数组）
-- 指数退避重试 + 45s 超时
-- 异常降级
 
 #### `session-manager.ts` — 会话管理器
 
@@ -200,36 +183,10 @@ visual_video_analyze:
 - 聚合根 `Session`，实体 `SessionObject` / `ConversationTurn`
 - 7 个方法：createSession / getSession / upsertObjects / addConversationTurn / getRecentHistory / cleanupExpired / deleteSession
 - augment 策略：新物体从已有最大 ID+1 开始分配
-- replace 策略：清空旧物体后重建
 
 ---
 
-### 3.5 适配器层 (`src/core/adapters/`)
-
-所有适配器实现 `MediaAdapter` 接口：
-
-```typescript
-interface MediaAdapter {
-  readonly mediaType: string;
-  adapt(input: string): Promise<Base64Image[]>;
-}
-```
-
-#### `image-adapter.ts` — 图片适配器
-
-- 直接透传 Base64，校验 >20MB 拒绝
-- MIME 检测：data: URL 前缀或默认 `image/jpeg`
-
-#### `video-adapter.ts` — 视频适配器
-
-- FFmpeg 抽帧，`fps=1/3` 固定间隔
-- 帧数受 `MAX_VIDEO_FRAMES` 限制
-- 每帧输出 Base64 JPEG + 时间戳
-- **优先级**：`ffmpeg-static` 内嵌二进制 → 系统 PATH `ffmpeg` 命令 → 降级空数组
-
----
-
-### 3.6 工具层 (`src/utils/`)
+### 3.5 工具层 (`src/utils/`)
 
 #### `logger.ts` — 结构化日志
 
@@ -244,15 +201,13 @@ interface MediaAdapter {
 
 ---
 
-### 3.7 模板层 (`src/templates/`)
+### 3.6 模板层 (`src/templates/`)
 
-| 模板文件               | 用途                                    | 关联工具                                  |
-| ---------------------- | --------------------------------------- | ----------------------------------------- |
-| `describe-system.txt`  | 场景描述提示词（自然语言输出）          | `visual_describe`, `visual_video_analyze` |
-| `locate-system.txt`    | 坐标定位提示词（JSON 输出）             | `visual_locate`                           |
-| `ocr-system.txt`       | OCR 文字提取提示词                      | `visual_ocr`                              |
-| `vision-system.txt`    | 旧版视觉原语提示词                      | `multimodal_grounding_augment`（兼容）    |
-| `augmented-prompt.txt` | 增强提示词模板（`{{VARIABLE}}` 占位符） | `prompt-builder.ts`                       |
+| 模板文件              | 用途                           | 关联工具                                  |
+| --------------------- | ------------------------------ | ----------------------------------------- |
+| `describe-system.txt` | 场景描述提示词（自然语言输出） | `visual_describe`, `visual_video_analyze` |
+| `locate-system.txt`   | 坐标定位提示词（JSON 输出）    | `visual_locate`                           |
+| `ocr-system.txt`      | OCR 文字提取提示词             | `visual_ocr`                              |
 
 ---
 
@@ -262,18 +217,16 @@ interface MediaAdapter {
 
 ```
 Step 1: visual_describe
-  MCP Client → tool-handlers.ts → 读文件 + encodeFileBase64
+  MCP Client → tool-handlers.ts → encodeFileBase64() → data URL
   → PipelineOrchestrator.describe()
-  → ModalityRouter → ImageAdapter.adapt() → Base64Image[]
-  → VisionClient.chat(describe-system)
-  → 自然语言描述存入会话历史
-  → 返回 description
+  → VisionClient.chat(describe-system) → 自然语言描述
+  → 描述存入会话历史 → 返回
 
 Step 2: visual_locate
-  MCP Client → tool-handlers.ts → [可选] encodeFileBase64
+  MCP Client → tool-handlers.ts → [可选] encodeFileBase64()
   → PipelineOrchestrator.locate()
   → 从 SessionManager 加载之前的 describe 结果作为上下文
-  → VisionClient.chat(locate-system) → JSON 坐标
+  → VisionClient.analyze(locate-system) → JSON 坐标
   → Parser → Validator → Normalizer
   → SessionManager.upsertObjects → 持久化
   → 返回 augmented_prompt + coordinates
@@ -283,25 +236,15 @@ Step 2: visual_locate
 
 ```
 visual_ocr
-  → ModalityRouter → ImageAdapter
-  → VisionClient.chat(ocr-system)
-  → 直接返回文字内容
+  → data URL → VisionClient.chat(ocr-system) → 直接返回文字内容
 ```
 
 ### 视频分析流程
 
 ```
 visual_video_analyze
-  → ModalityRouter → VideoAdapter（FFmpeg 抽帧）
-  → VisionClient.chat(describe-system)
-  → 返回视频描述
-```
-
-### 兼容流程（旧版 multimodal_grounding_augment）
-
-```
-→ PipelineOrchestrator.execute()（转发到 locate 管道）
-  → 行为与 visual_locate 一致
+  → data URL → VisionClient.chat(describe-system) → 返回描述
+  （视频直接发送，不做帧提取。DashScope 等兼容 OpenAI 的 API 原生支持 video_url）
 ```
 
 ---
@@ -315,7 +258,7 @@ Round 1: visual_describe（上传 UI 截图）
 
 Round 2: visual_locate（"找到蓝色提交按钮"）
   → 从会话历史加载 Round 1 的场景描述
-  → 将描述注入 locate 系统提示词作为上下文
+  → 将描述注入 locate 用户提示词作为上下文
   → 模型已有完整场景认知，定位精准
   → 物体入库 → round=2
 
@@ -329,29 +272,28 @@ Round 3: visual_locate（"表格右上角的分页器"）
 
 ## 6. 降级策略
 
-| 阶段       | 异常              | 处理                                          |
-| ---------- | ----------------- | --------------------------------------------- |
-| 适配器     | FFmpeg 不可用     | 先 fallback 到系统 ffmpeg，仍不可用返回空数组 |
-| 视觉客户端 | 网络/超时/429/5xx | 指数退避 3 次 → 降级结果                      |
-| 解析器     | JSON 格式错误     | 正则备用 → `AnalysisParseError`               |
-| 校验器     | 坐标越界/ID 重复  | `ValidationError` → 跳过此轮                  |
-| 整体       | 任何未捕获异常    | 降级输出 → 不崩溃                             |
+| 阶段       | 异常              | 处理                            |
+| ---------- | ----------------- | ------------------------------- |
+| 视觉客户端 | 网络/超时/429/5xx | 指数退避 3 次 → 降级结果        |
+| 解析器     | JSON 格式错误     | 正则备用 → `AnalysisParseError` |
+| 校验器     | 坐标越界/ID 重复  | `ValidationError` → 跳过此轮    |
+| 整体       | 任何未捕获异常    | 降级输出 → 不崩溃               |
 
 ---
 
 ## 7. 关键设计决策
 
-| 决策         | 选择                                 | 理由                                         |
-| ------------ | ------------------------------------ | -------------------------------------------- |
-| 任务调度     | 4 个独立工具 + 管道方法分发          | 每个工具专注一件事，系统提示词独立优化       |
-| 两阶段推理   | describe（自然语言）→ locate（JSON） | 先理解再定位，避免同时做两件事导致的精度下降 |
-| 上下文注入   | locate 时注入历史 describe 结果      | 模型已有完整场景认知，定位准确度显著提升     |
-| 模态统一     | 所有输入 → Base64Image[] → 同一管道  | 适配器只做格式转换，核心逻辑复用             |
-| 视频处理     | FFmpeg 抽帧 + 系统 PATH 兜底         | 优先用内嵌二进制，不可用时 try 系统 ffmpeg   |
-| 会话持久化   | node:sqlite (Node.js 内置)           | 零依赖、同步 API、WAL 事务安全               |
-| 多模态适配   | 注册表模式                           | 新增模态只需注册一行，不改管道               |
-| 降级兜底     | 每步独立 try/catch                   | 任何单点故障不影响服务可用性                 |
-| 文件路径支持 | 直接传本地路径，内部编码 Base64      | 用户无需手动编码，使用体验等同于 dashscope   |
+| 决策          | 选择                                 | 理由                                         |
+| ------------- | ------------------------------------ | -------------------------------------------- |
+| 任务调度      | 4 个独立工具 + 管道方法分发          | 每个工具专注一件事，系统提示词独立优化       |
+| 两阶段推理    | describe（自然语言）→ locate（JSON） | 先理解再定位，避免同时做两件事导致的精度下降 |
+| 上下文注入    | locate 时注入历史 describe 结果      | 模型已有完整场景认知，定位准确度显著提升     |
+| 直传 data URL | handler 一次编码，pipeline 直接消费  | 消除适配器中间层，无重复校验                 |
+| 视频处理      | 直接发送 video_url，不做帧提取       | DashScope 等视觉模型原生理解视频时序         |
+| 会话持久化    | node:sqlite (Node.js 内置)           | 零依赖、同步 API、WAL 事务安全               |
+| 分级模型配置  | 默认值 + 每工具可选覆盖              | 用户自由搭配模型，按任务类型选最合适的       |
+| 降级兜底      | 每步独立 try/catch                   | 任何单点故障不影响服务可用性                 |
+| 文件路径支持  | 直接传本地路径，内部编码 Base64      | 用户无需手动编码，使用体验等同于 dashscope   |
 
 ---
 
@@ -362,7 +304,7 @@ npm run dev          # 热重载开发
 npm run build        # 编译到 dist/
 npm run lint         # ESLint 检查
 npm run typecheck    # TypeScript 类型检查
-npm test             # 运行 153 个测试
+npm test             # 运行 110 个测试
 npm start            # 启动 MCP 服务（stdio）
 ```
 
