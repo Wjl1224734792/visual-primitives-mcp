@@ -11,20 +11,103 @@
 
 ## 前置要求
 
-- Node.js ≥ 22.5.0（`node:sqlite` 内置模块要求）
+- Node.js >= 22.5.0（`node:sqlite` 内置模块要求）
 - 可选：FFmpeg（视频处理需要，`ffmpeg-static` 会自动下载二进制）
+- 视觉模型 API Key（推荐 [阿里云百炼平台](https://dashscope.aliyun.com/)）
+
+## 推荐视觉模型
+
+| 模型                     | 平台       | API URL                                             | 特点                                     |
+| ------------------------ | ---------- | --------------------------------------------------- | ---------------------------------------- |
+| **qwen3.5-plus**         | 阿里云百炼 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 视觉能力强、性价比高、与 OpenAI 接口兼容 |
+| deepseek-v4-flash-vision | DeepSeek   | `https://api.deepseek.com/v1`                       | 原生视觉原语能力                         |
+| gpt-4o                   | OpenAI     | `https://api.openai.com/v1`                         | 通用视觉推理                             |
+| glm-4.6                  | 智谱       | `https://open.bigmodel.cn/api/paas/v4`              | 国产多模态模型                           |
 
 ## 安装
 
 ```bash
-git clone <repo-url>
-cd visual-primitives-mcp
-npm install
+npm install -g visual-primitives-mcp
+```
+
+## MCP 客户端配置
+
+### Claude Desktop
+
+编辑 Claude Desktop 配置文件（`claude_desktop_config.json`）：
+
+```json
+{
+  "mcpServers": {
+    "visual-primitives": {
+      "command": "node",
+      "args": ["dist/server.js"],
+      "env": {
+        "VISION_API_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "VISION_API_KEY": "你的百炼 API Key",
+        "VISION_MODEL_NAME": "qwen3.5-plus"
+      }
+    }
+  }
+}
+```
+
+如果是从 npm 全局安装的，用绝对路径：
+
+```json
+{
+  "mcpServers": {
+    "visual-primitives": {
+      "command": "npx",
+      "args": ["visual-primitives-mcp"],
+      "env": {
+        "VISION_API_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "VISION_API_KEY": "你的百炼 API Key",
+        "VISION_MODEL_NAME": "qwen3.5-plus"
+      }
+    }
+  }
+}
+```
+
+### OpenCode
+
+编辑 OpenCode 配置文件（`opencode.json`）：
+
+```json
+{
+  "mcpServers": {
+    "visual-primitives": {
+      "command": "npx",
+      "args": ["visual-primitives-mcp"],
+      "env": {
+        "VISION_API_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "VISION_API_KEY": "你的百炼 API Key",
+        "VISION_MODEL_NAME": "qwen3.5-plus"
+      }
+    }
+  }
+}
+```
+
+### Codex
+
+编辑 Codex 配置文件（`~/.codex/config.toml` 或项目根目录 `.codex.toml`）：
+
+```toml
+[mcp_servers.visual-primitives]
+command = "npx"
+args = ["visual-primitives-mcp"]
+
+[mcp_servers.visual-primitives.env]
+VISION_API_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+VISION_API_KEY = "你的百炼 API Key"
+VISION_MODEL_NAME = "qwen3.5-plus"
 ```
 
 ## 环境变量配置
 
-复制 `.env.example` 为 `.env` 并填写必填项：
+如果从源码运行，复制 `.env.example` 为 `.env` 并填写必填项：
 
 ```bash
 cp .env.example .env
@@ -34,7 +117,7 @@ cp .env.example .env
 | ---------------------- | ----------------------------------------- | --------------------- | ---- |
 | `VISION_API_BASE_URL`  | 视觉模型 API 基础 URL                     | —                     | 是   |
 | `VISION_API_KEY`       | API 密钥                                  | —                     | 是   |
-| `VISION_MODEL_NAME`    | 模型名称（如 `deepseek-v4-flash-vision`） | —                     | 是   |
+| `VISION_MODEL_NAME`    | 模型名称                                  | —                     | 是   |
 | `COORDINATE_PRECISION` | 坐标归一化精度（`0-100` 或 `0-1000`）     | `0-1000`              | 否   |
 | `MCP_TRANSPORT`        | 传输协议（`stdio`/`sse`/`http-stream`）   | `stdio`               | 否   |
 | `LOG_LEVEL`            | 日志级别（`debug`/`info`/`warn`/`error`） | `info`                | 否   |
@@ -47,28 +130,12 @@ cp .env.example .env
 
 ## 启动方式
 
-### Stdio 模式（推荐，用于 Claude Desktop）
+### Stdio 模式（推荐）
 
 ```bash
 npm start
-```
-
-Claude Desktop 配置示例（`claude_desktop_config.json`）：
-
-```json
-{
-  "mcpServers": {
-    "visual-primitives": {
-      "command": "node",
-      "args": ["dist/server.js"],
-      "env": {
-        "VISION_API_BASE_URL": "https://api.deepseek.com/v1",
-        "VISION_API_KEY": "sk-xxxxxxxx",
-        "VISION_MODEL_NAME": "deepseek-v4-flash-vision"
-      }
-    }
-  }
-}
+# 或
+npx visual-primitives-mcp
 ```
 
 ### SSE 模式（HTTP 服务）
@@ -177,10 +244,10 @@ MCP_TRANSPORT=http-stream PORT=3000 npm start
 
 | 格式 | 扩展名          | 大小限制 | 说明                        |
 | ---- | --------------- | -------- | --------------------------- |
-| JPEG | `.jpg`, `.jpeg` | ≤ 20MB   | Base64 直传                 |
-| PNG  | `.png`          | ≤ 20MB   | Base64 直传                 |
-| GIF  | `.gif`          | ≤ 20MB   | Base64 直传                 |
-| WebP | `.webp`         | ≤ 20MB   | Base64 直传                 |
+| JPEG | `.jpg`, `.jpeg` | <= 20MB  | Base64 直传                 |
+| PNG  | `.png`          | <= 20MB  | Base64 直传                 |
+| GIF  | `.gif`          | <= 20MB  | Base64 直传                 |
+| WebP | `.webp`         | <= 20MB  | Base64 直传                 |
 | MP4  | `.mp4`          | 无硬限制 | FFmpeg 抽帧，默认最多 10 帧 |
 | MOV  | `.mov`          | 无硬限制 | 同上                        |
 | AVI  | `.avi`          | 无硬限制 | 同上                        |
@@ -245,18 +312,13 @@ visual-primitives-mcp/
 │       └── retry.ts               # 指数退避重试
 ├── tests/
 ├── data/                          # SQLite 数据库文件
-├── docs/                          # 需求/任务/计划文档
-├── package.json
-├── tsconfig.json
-├── eslint.config.js
-├── vitest.config.ts
-└── README.md
+└── package.json
 ```
 
 ## 架构
 
 ```
-MCP Client（Claude Desktop / 自定义 Agent）
+MCP Client（Claude Desktop / OpenCode / Codex）
        │ JSON-RPC（stdio / SSE / HTTP Stream）
        ▼
 ┌──────────────────────────────────────┐
@@ -287,7 +349,7 @@ MCP Client（Claude Desktop / 自定义 Agent）
 
 ## 技术栈
 
-- **运行时**：Node.js ≥ 22.5.0
+- **运行时**：Node.js >= 22.5.0
 - **语言**：TypeScript (strict)
 - **MCP 协议**：@modelcontextprotocol/sdk
 - **HTTP 传输**：Hono（SSE/HTTP Stream 模式）
