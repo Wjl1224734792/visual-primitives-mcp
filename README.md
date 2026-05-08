@@ -96,19 +96,20 @@ npm install -g visual-primitives-mcp
 
 ### OpenCode
 
-编辑 `opencode.json`：
+编辑 `opencode.json`（项目根目录或 `~/.config/opencode/opencode.json`）：
 
 ```json
 {
-  "mcpServers": {
+  "mcp": {
     "visual-primitives": {
-      "command": "npx",
-      "args": ["visual-primitives-mcp"],
-      "env": {
+      "type": "local",
+      "command": ["npx", "visual-primitives-mcp"],
+      "environment": {
         "VISION_API_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "VISION_API_KEY": "你的百炼 API Key",
         "VISION_MODEL_NAME": "qwen3.5-plus"
-      }
+      },
+      "enabled": true
     }
   }
 }
@@ -355,7 +356,7 @@ visual-primitives-mcp/
 完整架构文档、数据流、设计决策见 **[AGENTS.md](./AGENTS.md)**。各层级指引见各级 `CLAUDE.md`。
 
 ```
-MCP Client（Claude Desktop / OpenCode / Codex）
+MCP Client（Claude Code / OpenCode / Codex / Claude Desktop）
        │ JSON-RPC（stdio / SSE / HTTP Stream）
        ▼
 ┌──────────────────────────────────────┐
