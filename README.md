@@ -1,10 +1,8 @@
 # Visual Primitives MCP
 
-[![npm version](https://img.shields.io/npm/v/visual-primitives-mcp)](https://www.npmjs.com/package/visual-primitives-mcp)
+[![npm](https://img.shields.io/npm/v/visual-primitives-mcp?label=version)](https://www.npmjs.com/package/visual-primitives-mcp)
 [![license](https://img.shields.io/npm/l/visual-primitives-mcp)](./LICENSE)
-[![node](https://img.shields.io/node/v/visual-primitives-mcp)](https://nodejs.org/)
-
-> 当前版本：**v1.1.1** | [MIT License](./LICENSE) | Node.js >= 22.5.0
+[![node](https://img.shields.io/badge/node-%3E%3D22.5.0-brightgreen)](https://nodejs.org/)
 
 > **灵感来源**：[DeepSeek《Thinking with Visual Primitives》](https://github.com/mitkox/Thinking-with-Visual-Primitives)（2026 年 4 月 30 日发布）首次提出将**边界框和点坐标作为最小思维单元**直接嵌入推理轨迹。本 MCP 服务器将该范式封装为标准 MCP 工具，并引入**任务调度**架构——先描述后定位，两阶段各司其职。
 
@@ -438,13 +436,15 @@ visual-primitives-mcp/
 
 ## 数据库与会话隔离
 
-SQLite 数据库默认路径为 **`./data/grounding.db`**（相对于 MCP 服务启动目录，可通过 `DB_PATH` 环境变量覆盖）。
+> **推荐：每个项目独立数据库（默认行为）。** 视觉分析会话与项目上下文强绑定——项目 A 的 UI 截图和项目 B 无关，共享只会引入噪音。
 
-**多项目隔离**：MCP 客户端（Claude Code 等）在每个项目根目录启动服务进程，因此不同项目的数据库天然隔离——项目 A 的会话不会泄漏到项目 B。
+SQLite 数据库默认路径为 **`./data/grounding.db`**（相对于 MCP 服务启动目录）。MCP 客户端（Claude Code 等）在每个项目根目录启动服务进程，因此不同项目天然隔离。
 
-**会话 TTL**：默认 3600 秒（1 小时）未访问的会话自动清理。可通过 `SESSION_TTL_SECONDS` 环境变量调整。
+如果确有跨项目共享需求（如持续分析同一个应用的多仓库），设置绝对路径：`DB_PATH=/home/xxx/shared-vision.db`。
 
-**跨工具共享**：同一 `session_id` 下的 `visual_describe`、`visual_locate`、`visual_video_analyze` 共享全部上下文（物体坐标 + 对话历史），实现零 API 成本的跨轮跨工具追问。
+**会话 TTL**：默认 3600 秒（1 小时）未访问的会话自动清理。可通过 `SESSION_TTL_SECONDS` 调整。
+
+**跨工具共享**：同一 `session_id` 下的所有工具共享上下文（物体坐标 + 对话历史），跨轮跨工具追问零 API 成本。
 
 ## 架构
 
