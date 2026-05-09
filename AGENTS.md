@@ -51,10 +51,10 @@
 │       工具层 (utils/)        │
 │  logger.ts / retry.ts        │
 ├──────────────────────────────┤
-│       模板层 (templates/)    │
-│  describe-system.txt         │
-│  locate-system.txt           │
-│  ocr-system.txt              │
+│       模板层 (templates/)        │
+│  describe-structured.txt         │
+│  locate-system.txt               │
+│  ocr-system.txt                  │
 └──────────────────────────────┘
 ```
 
