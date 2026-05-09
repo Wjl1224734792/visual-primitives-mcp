@@ -1,5 +1,11 @@
 # Visual Primitives MCP
 
+[![npm version](https://img.shields.io/npm/v/visual-primitives-mcp)](https://www.npmjs.com/package/visual-primitives-mcp)
+[![license](https://img.shields.io/npm/l/visual-primitives-mcp)](./LICENSE)
+[![node](https://img.shields.io/node/v/visual-primitives-mcp)](https://nodejs.org/)
+
+> 当前版本：**v1.1.1** | [MIT License](./LICENSE) | Node.js >= 22.5.0
+
 > **灵感来源**：[DeepSeek《Thinking with Visual Primitives》](https://github.com/mitkox/Thinking-with-Visual-Primitives)（2026 年 4 月 30 日发布）首次提出将**边界框和点坐标作为最小思维单元**直接嵌入推理轨迹。本 MCP 服务器将该范式封装为标准 MCP 工具，并引入**任务调度**架构——先描述后定位，两阶段各司其职。
 
 基于视觉原语范式的多模态视觉理解 MCP 服务器。通过任务调度机制，将场景理解和坐标定位分离为独立工具，实现「先看清 → 再定位」的精确空间推理。
@@ -225,7 +231,7 @@ MCP_TRANSPORT=http-stream PORT=3000 npm start
 
 ### `visual_describe` — 场景描述
 
-对图片/截图进行全面、细致的自然语言描述。专注场景理解，不要求坐标输出。**支持多轮对话**：传入 `session_id` 可复用之前的描述上下文，实现追问式交互。
+对图片/截图进行场景描述 + 关键物体识别。**支持多轮对话**：传入 `session_id` 可复用之前的描述上下文，实现追问式交互。
 
 | 参数         | 类型   | 必填 | 说明                      |
 | ------------ | ------ | ---- | ------------------------- |
@@ -233,27 +239,31 @@ MCP_TRANSPORT=http-stream PORT=3000 npm start
 | `prompt`     | string | 否   | 分析指令，默认全面描述    |
 | `session_id` | string | 否   | 会话 ID，首次不传自动生成 |
 
-**返回值**：
+**输出 JSON Schema**：
 
-```json
+```jsonc
 {
-  "session_id": "uuid-string",
-  "description": "页面包含顶部导航栏（Logo、搜索框）...",
-  "round": 1,
-  "objects": [
+  "session_id": "uuid",           // 会话 ID（跨轮复用）
+  "description": "自然语言描述",    // 画面内容、布局、颜色、物体关系
+  "round": 1,                     // 会话轮次
+  "objects": [                    // 识别到的关键物体列表
     {
-      "id": 1,
-      "label": "新建按钮",
-      "bbox": [850, 620, 920, 660],
-      "centroid": [885, 640],
-      "color": "蓝色",
+      "id": 1,                    // 物体唯一 ID
+      "label": "物体名称",         // 简洁标签
+      "bbox": [x1, y1, x2, y2],   // 边界框（左上角原点，0-1000 归一化）
+      "centroid": [cx, cy],       // 中心点坐标
+      "color": "颜色名称",         // 显著颜色特征（可选）
+      "state": "正常",            // 状态（可选）
+      "relevance": "高",          // 相关度（可选）
       "position_hint": "右下区域，偏右385偏下140"
+        // ↑ 以画面中心(500,500)为原点换算的自然语言方位
+        // "画面中心" | "左上区域" | "右下区域，偏右X偏下Y"
     }
   ]
 }
 ```
 
-> `objects` 携带画面中所有关键物体的坐标和颜色。`position_hint` 以画面中心为原点，LLM 可直接读"右下区域"推理，无需换算左上角坐标。
+**坐标体系**：统一左上角原点 `(0,0)`，归一化到 `0-1000`。`position_hint` 是自动换算的辅助字段，不改变坐标协议，仅为 LLM 推理提供直观方位参考。
 
 ### `visual_locate` — 坐标定位
 
@@ -422,9 +432,19 @@ visual-primitives-mcp/
 │   └── CLAUDE.md                   # 测试套件指引
 ├── bin/
 │   └── cli.js                      # CLI 入口
-├── data/                           # SQLite 数据库文件
+├── data/                           # SQLite 数据库文件（相对于 CWD）
 └── package.json
 ```
+
+## 数据库与会话隔离
+
+SQLite 数据库默认路径为 **`./data/grounding.db`**（相对于 MCP 服务启动目录，可通过 `DB_PATH` 环境变量覆盖）。
+
+**多项目隔离**：MCP 客户端（Claude Code 等）在每个项目根目录启动服务进程，因此不同项目的数据库天然隔离——项目 A 的会话不会泄漏到项目 B。
+
+**会话 TTL**：默认 3600 秒（1 小时）未访问的会话自动清理。可通过 `SESSION_TTL_SECONDS` 环境变量调整。
+
+**跨工具共享**：同一 `session_id` 下的 `visual_describe`、`visual_locate`、`visual_video_analyze` 共享全部上下文（物体坐标 + 对话历史），实现零 API 成本的跨轮跨工具追问。
 
 ## 架构
 
