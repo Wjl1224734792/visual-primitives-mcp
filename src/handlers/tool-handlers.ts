@@ -117,7 +117,9 @@ export function registerTool(
     {
       title: '视觉场景描述',
       description:
-        '对图片/截图进行全面、细致的自然语言描述。专注场景理解，不要求坐标输出。支持 UI 截图分析、场景描述、物体识别。传入本地图片文件路径，返回模型对该图片的详细描述。',
+        '对图片/截图进行场景描述与关键物体识别（含坐标+颜色+位置提示）。' +
+        '★ 如果用户在同一轮对话中追问图片相关内容，务必传入上次返回的 session_id，' +
+        '这样后续调用无需重新上传图片即可复用上下文，节省 API 调用成本。',
       inputSchema: {
         image_path: z
           .string()
@@ -129,7 +131,9 @@ export function registerTool(
         session_id: z
           .string()
           .optional()
-          .describe('会话 ID，多轮复用时传入。首次调用自动生成'),
+          .describe(
+            '★ 追问同一图片时必须传入上次返回的 session_id，复用上下文避免重复上传分析'
+          ),
       },
     },
     async params => {
@@ -176,7 +180,9 @@ export function registerTool(
     {
       title: '视觉坐标定位',
       description:
-        '在场景理解基础上精确定位目标物体，输出带坐标锚点的增强提示词。配合 visual_describe 使用：先用 describe 理解场景，再用 locate 定位坐标。也可单独使用传入新图像进行定位。',
+        '精确定位目标物体的坐标。★ 如果先调用了 visual_describe，务必传入它返回的 session_id，' +
+        '可直接从缓存读取物体坐标而无需再次调用视觉 API。' +
+        '如未调用过 describe，则需传入 image_path 进行独立定位。',
       inputSchema: {
         question: z
           .string()
@@ -185,11 +191,15 @@ export function registerTool(
         image_path: z
           .string()
           .optional()
-          .describe('本地图片文件的绝对路径。不传则使用当前会话缓存的场景信息'),
+          .describe(
+            '本地图片路径。如果传了 session_id 且该会话已有缓存物体，可省略此参数节省调用'
+          ),
         session_id: z
           .string()
           .optional()
-          .describe('会话 ID，多轮复用时传入。首次调用自动生成'),
+          .describe(
+            '★ 复用 visual_describe 返回的 session_id 可从缓存读取物体，零 API 成本定位'
+          ),
         coordinate_precision: z
           .enum(['0-100', '0-1000'])
           .default('0-1000')
@@ -292,7 +302,8 @@ export function registerTool(
     {
       title: '视觉视频分析',
       description:
-        '分析视频内容，包括事件/动作识别、场景变化检测、视频摘要。传入本地视频文件路径，返回对视频内容的分析结果。短视频（<3 分钟）效果最佳。',
+        '分析视频内容（事件/动作识别、场景变化、摘要）。' +
+        '★ 追问同一视频时务必传入上次返回的 session_id 以复用上下文。',
       inputSchema: {
         video_path: z
           .string()
@@ -306,7 +317,9 @@ export function registerTool(
         session_id: z
           .string()
           .optional()
-          .describe('会话 ID，多轮复用时传入。首次调用自动生成'),
+          .describe(
+            '★ 追问同一视频时必须传入上次返回的 session_id，复用上下文'
+          ),
       },
     },
     async params => {
