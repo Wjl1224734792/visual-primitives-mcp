@@ -1,8 +1,8 @@
 # Visual Primitives MCP
 
 [![version](https://img.shields.io/badge/version-1.1.1-blue)](https://www.npmjs.com/package/visual-primitives-mcp)
+[![npm](https://img.shields.io/npm/v/visual-primitives-mcp?color=red)](https://www.npmjs.com/package/visual-primitives-mcp)
 [![license](https://img.shields.io/npm/l/visual-primitives-mcp)](./LICENSE)
-[![node](https://img.shields.io/badge/node-%3E%3D22.5.0-brightgreen)](https://nodejs.org/)
 
 > **灵感来源**：[DeepSeek《Thinking with Visual Primitives》](https://github.com/mitkox/Thinking-with-Visual-Primitives)（2026 年 4 月 30 日发布）首次提出将**边界框和点坐标作为最小思维单元**直接嵌入推理轨迹。本 MCP 服务器将该范式封装为标准 MCP 工具，并引入**任务调度**架构——先描述后定位，两阶段各司其职。
 
