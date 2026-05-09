@@ -237,6 +237,59 @@ describe('PipelineOrchestrator', () => {
       expect(mockSessionManager.addConversationTurn).toHaveBeenCalledTimes(2);
     });
 
+    it('有历史对话时应在 prompt 中注入上下文', async () => {
+      const mockSessionManager = {
+        getSession: vi.fn().mockReturnValue({
+          session: {
+            session_id: 'd2',
+            media_type: 'image',
+            created_at: Date.now() / 1000,
+            last_accessed_at: Date.now() / 1000,
+          },
+          objects: [],
+          recentHistory: [
+            {
+              round: 1,
+              role: 'user' as const,
+              content: '描述这张图片',
+              created_at: Date.now() / 1000 - 50,
+            },
+            {
+              round: 1,
+              role: 'assistant' as const,
+              content: '页面包含顶部导航栏和搜索框',
+              created_at: Date.now() / 1000 - 49,
+            },
+          ],
+        } as SessionContext),
+        createSession: vi.fn(),
+        addConversationTurn: vi.fn(),
+      };
+
+      const mockVisionClient = {
+        chat: vi.fn().mockResolvedValue('搜索框在导航栏右侧'),
+        analyze: vi.fn(),
+      };
+
+      const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
+        mockSessionManager,
+        mockVisionClient
+      );
+      await pipeline.describe({
+        sessionId: 'd2',
+        imageBase64: 'test',
+        mediaType: 'image',
+        prompt: '搜索框在哪',
+      });
+
+      // 验证 chat 被调用时 prompt 注入了历史上下文
+      const callArgs = mockVisionClient.chat.mock.calls[0] as unknown[];
+      const userPrompt = callArgs[3] as string;
+      expect(userPrompt).toContain('已有场景上下文');
+      expect(userPrompt).toContain('导航栏和搜索框');
+      expect(userPrompt).toContain('搜索框在哪');
+    });
+
     it('VisionClient 异常时返回降级描述', async () => {
       const mockSessionManager = {
         getSession: vi.fn().mockReturnValue({
@@ -495,6 +548,58 @@ describe('PipelineOrchestrator', () => {
       expect(result.description).toBe('视频展示了一个人在公园散步');
       expect(result.round).toBeGreaterThan(0);
       expect(mockVisionClient.chat).toHaveBeenCalled();
+    });
+
+    it('有历史对话时应注入上下文到视频分析 prompt', async () => {
+      const mockSessionManager = {
+        getSession: vi.fn().mockReturnValue({
+          session: {
+            session_id: 'v2',
+            media_type: 'video',
+            created_at: Date.now() / 1000,
+            last_accessed_at: Date.now() / 1000,
+          },
+          objects: [],
+          recentHistory: [
+            {
+              round: 1,
+              role: 'user' as const,
+              content: '分析这个视频',
+              created_at: Date.now() / 1000 - 30,
+            },
+            {
+              round: 1,
+              role: 'assistant' as const,
+              content: '视频中一个人在公园散步',
+              created_at: Date.now() / 1000 - 29,
+            },
+          ],
+        } as SessionContext),
+        createSession: vi.fn(),
+        addConversationTurn: vi.fn(),
+      };
+
+      const mockVisionClient = {
+        chat: vi.fn().mockResolvedValue('此人穿着蓝色外套'),
+        analyze: vi.fn(),
+      };
+
+      const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
+        mockSessionManager,
+        mockVisionClient
+      );
+      await pipeline.videoAnalyze({
+        sessionId: 'v2',
+        videoBase64: 'video-data',
+        mediaType: 'video',
+        prompt: '他穿什么衣服？',
+      });
+
+      const callArgs = mockVisionClient.chat.mock.calls[0] as unknown[];
+      const userPrompt = callArgs[3] as string;
+      expect(userPrompt).toContain('已有场景上下文');
+      expect(userPrompt).toContain('公园散步');
+      expect(userPrompt).toContain('他穿什么衣服？');
     });
   });
 });

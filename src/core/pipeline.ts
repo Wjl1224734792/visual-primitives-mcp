@@ -120,18 +120,25 @@ export class PipelineOrchestrator {
     this.visionClient = visionClient;
   }
 
-  /** 场景描述：自然语言输出，存入会话供 locate 注入上下文 */
+  /** 场景描述：自然语言输出，存入会话供后续调用注入上下文 */
   async describe(input: DescribeInput): Promise<DescribeOutput> {
     const { sessionId, imageBase64, mediaType, prompt } = input;
 
     logger.info({ sessionId, mediaType }, 'Pipeline.describe: 开始');
 
     getOrCreateSession(this.sessionManager, sessionId, mediaType, imageBase64);
+    const sessionCtx = this.sessionManager.getSession(sessionId);
+    const recentHistory = sessionCtx?.recentHistory ?? [];
     const round = nextRound(this.sessionManager, sessionId);
 
     try {
       const dataUrls = [imageBase64];
-      const userPrompt = prompt ?? '请详细描述这张图片/截图的内容。';
+      const basePrompt = prompt ?? '请详细描述这张图片/截图的内容。';
+      const historyContext = contextFromHistory(recentHistory);
+      const userPrompt = historyContext
+        ? `${historyContext}\n\n现在请回答以下问题（注意结合之前的上下文）：${basePrompt}`
+        : basePrompt;
+
       const content = await this.visionClient.chat(
         config.describe,
         dataUrls,
@@ -143,7 +150,7 @@ export class PipelineOrchestrator {
         sessionId,
         round,
         'user',
-        userPrompt
+        basePrompt
       );
       this.sessionManager.addConversationTurn(
         sessionId,
@@ -295,20 +302,27 @@ export class PipelineOrchestrator {
     }
   }
 
-  /** 视频分析：直接发送视频，模型原生理解 */
+  /** 视频分析：直接发送视频，模型原生理解，注入历史上下文支持多轮追问 */
   async videoAnalyze(input: VideoAnalyzeInput): Promise<VideoAnalyzeOutput> {
     const { sessionId, videoBase64, mediaType, prompt } = input;
 
     logger.info({ sessionId, mediaType }, 'Pipeline.videoAnalyze: 开始');
 
     getOrCreateSession(this.sessionManager, sessionId, mediaType, videoBase64);
+    const sessionCtx = this.sessionManager.getSession(sessionId);
+    const recentHistory = sessionCtx?.recentHistory ?? [];
     const round = nextRound(this.sessionManager, sessionId);
 
     try {
       const dataUrls = [videoBase64];
-      const userPrompt =
+      const basePrompt =
         prompt ??
         '请分析这个视频的内容，包括：发生了什么事件或动作、出现了哪些人物或物体、场景环境、整体氛围。';
+      const historyContext = contextFromHistory(recentHistory);
+      const userPrompt = historyContext
+        ? `${historyContext}\n\n现在请回答以下问题（注意结合之前的上下文）：${basePrompt}`
+        : basePrompt;
+
       const content = await this.visionClient.chat(
         config.video,
         dataUrls,
@@ -320,7 +334,7 @@ export class PipelineOrchestrator {
         sessionId,
         round,
         'user',
-        userPrompt
+        basePrompt
       );
       this.sessionManager.addConversationTurn(
         sessionId,

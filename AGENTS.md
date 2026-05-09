@@ -17,7 +17,7 @@
 | 持久化   | node:sqlite（内置）            |
 | 校验     | Zod                            |
 | 日志     | pino（敏感字段脱敏）           |
-| 测试     | vitest（7 文件 112 用例）      |
+| 测试     | vitest（7 文件 114 用例）      |
 
 ---
 
@@ -67,7 +67,7 @@
 #### `server.ts` — 服务主入口
 
 - 初始化链：`SessionManager → VisionClient → PipelineOrchestrator → McpServer`
-- 注册 4 个视觉任务工具
+- 注册 4 个视觉任务工具（describe/locate/ocr/video 均支持多轮会话上下文注入）
 - 根据 `MCP_TRANSPORT` 环境变量选择传输模式（stdio / sse / http-stream）
 - Hono 仅在 SSE/HTTP Stream 模式动态加载，stdio 零开销
 - 启动 60s 间隔的 TTL 会话清理定时器
@@ -126,8 +126,8 @@
 
 ```
 visual_describe:
-  1. 直接传 data URL → VisionClient.chat(describe-system) → 自然语言描述
-  2. 存储描述到会话历史 → 返回
+  1. 注入历史描述上下文（如有）→ data URL → VisionClient.chat(describe-system) → 自然语言描述
+  2. 存储描述到会话历史 → 返回（支持多轮追问）
 
 visual_locate:
   1. [可选] 新媒体 → VisionClient.analyze(locate-system) → JSON
@@ -138,11 +138,12 @@ visual_ocr:
   1. data URL → VisionClient.chat(ocr-system) → 返回文字
 
 visual_video_analyze:
-  1. data URL → VisionClient.chat(describe-system) → 返回描述
+  1. 注入历史分析上下文（如有）→ data URL → VisionClient.chat(describe-system) → 返回描述（支持多轮追问）
 ```
 
 - PipelineOrchestrator 只依赖 SessionManager + VisionClient，无中间适配层
 - data URL 由 handler 的 `encodeFileBase64()` 一次性准备好，pipeline 直接消费
+- describe / video_analyze / locate 均自动注入最近一轮的 assistant 响应作为上下文
 
 #### `vision-client.ts` — 视觉模型客户端
 
@@ -305,7 +306,7 @@ npm run dev          # 热重载开发
 npm run build        # 编译到 dist/
 npm run lint         # ESLint 检查
 npm run typecheck    # TypeScript 类型检查
-npm test             # 运行 112 个测试
+npm test             # 运行 114 个测试
 npm start            # 启动 MCP 服务（stdio）
 ```
 
