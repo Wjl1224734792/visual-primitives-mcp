@@ -29,7 +29,11 @@ import { VisionClient } from './vision-client.js';
 import { parseResponse } from './parser.js';
 import { validateObjects } from './validator.js';
 import { normalizeObjects } from './normalizer.js';
-import { buildAugmentedPrompt } from './prompt-builder.js';
+import {
+  buildAugmentedPrompt,
+  buildSpatialGraph,
+  formatSpatialGraph,
+} from './prompt-builder.js';
 import { logger } from '../utils/logger.js';
 
 // ---- 系统提示词缓存 ----
@@ -112,9 +116,6 @@ function contextFromHistory(history: ConversationTurn[]): string {
 
 /**
  * 以画面中心为原点计算自然语言位置提示
- *
- * 坐标归一化到 precision × precision 范围（通常 1000×1000），
- * 中心在 (precision/2, precision/2)。输出如"右下区域，偏右250偏下180"。
  */
 function computePositionHint(
   centroid: [number, number],
@@ -151,11 +152,11 @@ export class PipelineOrchestrator {
     this.visionClient = visionClient;
   }
 
-  /** 场景描述：JSON 模式输出自然语言 + 结构化物体坐标，注入历史上下文 */
+  /** 场景描述：JSON 模式输出自然语言 + 结构化物体坐标 + 空间关系图谱 */
   async describe(input: DescribeInput): Promise<DescribeOutput> {
-    const { sessionId, imageBase64, mediaType, prompt } = input;
+    const { sessionId, imageBase64, mediaType, prompt, fromCache } = input;
 
-    logger.info({ sessionId, mediaType }, 'Pipeline.describe: 开始');
+    logger.info({ sessionId, mediaType, fromCache }, 'Pipeline.describe: 开始');
 
     getOrCreateSession(this.sessionManager, sessionId, mediaType, imageBase64);
     const sessionCtx = this.sessionManager.getSession(sessionId);
@@ -163,50 +164,87 @@ export class PipelineOrchestrator {
     const round = nextRound(this.sessionManager, sessionId);
 
     try {
-      const dataUrls = [imageBase64];
       const basePrompt = prompt ?? '请描述画面内容并识别所有关键物体。';
       const historyContext = contextFromHistory(recentHistory);
-      const userPrompt = historyContext
-        ? `${historyContext}\n\n现在请回答以下问题（注意结合之前的上下文）：${basePrompt}`
-        : basePrompt;
-
-      // 使用 JSON 模式：一次调用同时拿到描述文本 + 结构化物体坐标
-      const raw = await this.visionClient.analyze(
-        config.describe,
-        dataUrls,
-        describeSystemPrompt,
-        userPrompt
-      );
-
-      const parsed: VisualAnalysisResult = parseResponse(raw);
       const precision = 1000;
-      validateObjects(parsed.objects, precision);
-      const normalized = normalizeObjects(parsed.objects, precision, precision);
 
-      // 存储物体到会话
-      const sessionObjects = visualToSessionObjects(
-        normalized,
-        mediaType,
-        round
-      );
-      if (sessionObjects.length > 0) {
-        this.sessionManager.upsertObjects(sessionId, sessionObjects, 'augment');
+      let description: string;
+      let objects: DescribeObject[];
+
+      if (fromCache && sessionCtx && sessionCtx.objects.length > 0) {
+        // 缓存模式：跳过视觉 API，直接从已有物体构建图谱推理
+        objects = sessionCtx.objects.map(obj => ({
+          id: obj.object_id,
+          label: obj.label,
+          bbox: [obj.x1, obj.y1, obj.x2, obj.y2] as [
+            number,
+            number,
+            number,
+            number,
+          ],
+          centroid: [obj.cx, obj.cy] as [number, number],
+          color: undefined,
+          state: obj.state,
+          relevance: obj.relevance,
+          position_hint: computePositionHint(
+            [obj.cx, obj.cy] as [number, number],
+            precision
+          ),
+        }));
+
+        const historyCtx = historyContext
+          ? historyContext.substring(0, 200)
+          : '';
+        description = `[缓存推理 · ${String(sessionCtx.objects.length)}个物体] ${historyCtx}`;
+      } else {
+        // 正常模式：调用视觉 API
+        const dataUrls = [imageBase64];
+        const userPrompt = historyContext
+          ? `${historyContext}\n\n现在请回答以下问题（注意结合之前的上下文）：${basePrompt}`
+          : basePrompt;
+
+        const raw = await this.visionClient.analyze(
+          config.describe,
+          dataUrls,
+          describeSystemPrompt,
+          userPrompt
+        );
+
+        const parsed: VisualAnalysisResult = parseResponse(raw);
+        validateObjects(parsed.objects, precision);
+        const normalized = normalizeObjects(
+          parsed.objects,
+          precision,
+          precision
+        );
+
+        // 存储物体到会话
+        const sessionObjects = visualToSessionObjects(
+          normalized,
+          mediaType,
+          round
+        );
+        if (sessionObjects.length > 0) {
+          this.sessionManager.upsertObjects(
+            sessionId,
+            sessionObjects,
+            'augment'
+          );
+        }
+
+        objects = normalized.map(obj => ({
+          id: obj.id,
+          label: obj.label,
+          bbox: obj.bbox,
+          centroid: obj.centroid,
+          color: obj.color,
+          state: obj.state,
+          relevance: obj.relevance,
+          position_hint: computePositionHint(obj.centroid, precision),
+        }));
+
+        description = parsed.reasoning ?? '（视觉模型已识别画面中的关键物体）';
       }
-
-      // 为每个物体计算中心原点位置提示
-      const objects: DescribeObject[] = normalized.map(obj => ({
-        id: obj.id,
-        label: obj.label,
-        bbox: obj.bbox,
-        centroid: obj.centroid,
-        color: obj.color,
-        state: obj.state,
-        relevance: obj.relevance,
-        position_hint: computePositionHint(obj.centroid, precision),
-      }));
-
-      const description =
-        parsed.reasoning ?? '（视觉模型已识别画面中的关键物体）';
 
       this.sessionManager.addConversationTurn(
         sessionId,
@@ -221,11 +259,29 @@ export class PipelineOrchestrator {
         description.substring(0, 500)
       );
 
+      // 从会话中提取全部物体构建空间关系图谱（纯本地计算，零 API 成本）
+      const allObjects =
+        this.sessionManager.getSession(sessionId)?.objects ?? [];
+      const graph = buildSpatialGraph(allObjects);
+      const spatialGraph = formatSpatialGraph(graph);
+
       logger.info(
-        { sessionId, round, objectsCount: objects.length },
+        {
+          sessionId,
+          round,
+          fromCache,
+          objectsCount: objects.length,
+          graphEntries: graph.length,
+        },
         'Pipeline.describe: 完成'
       );
-      return { sessionId, description, round, objects };
+      return {
+        sessionId,
+        description,
+        round,
+        objects,
+        spatial_graph: spatialGraph,
+      };
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       logger.error({ error: errMsg, sessionId }, 'Pipeline.describe: 失败');

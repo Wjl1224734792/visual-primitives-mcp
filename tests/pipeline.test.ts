@@ -86,6 +86,8 @@ vi.mock('../src/core/prompt-builder.js', () => ({
     (params: { question: string }) =>
       `[增强提示词] ${params.question}\n\n请基于空间信息回答。`
   ),
+  buildSpatialGraph: vi.fn(() => []),
+  formatSpatialGraph: vi.fn(() => '（无空间关系图谱）'),
 }));
 
 vi.mock('../src/utils/logger.js', () => ({

@@ -119,15 +119,19 @@ export interface DescribeInput {
   imageBase64: string;
   mediaType: string;
   prompt?: string;
+  /** 设为 true 跳过视觉 API，直接从缓存推理（用于多轮追问节省成本） */
+  fromCache?: boolean;
 }
 
-/** describe 管道输出（含物体坐标 + 中心原点位置提示） */
+/** describe 管道输出（含物体坐标 + 中心原点位置提示 + 空间关系图谱） */
 export interface DescribeOutput {
   sessionId: string;
   description: string;
   round: number;
   /** 识别到的物体列表（含相对画面中心的位置提示） */
   objects?: DescribeObject[];
+  /** 空间关系图谱：所有物体两两之间的方向与距离，纯本地计算零 API 成本 */
+  spatial_graph?: string;
 }
 
 /** describe 返回的物体信息 */

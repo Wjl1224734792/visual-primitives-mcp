@@ -154,3 +154,90 @@ function buildRelationships(objects: SessionObject[]): string {
 
   return relationships.map(r => `- ${r}`).join('\n');
 }
+
+/**
+ * 空间关系图谱条目：描述两个物体之间的位置关系
+ */
+export interface SpatialGraphEntry {
+  /** "1-2"（小ID-大ID） */
+  pair: string;
+  /** id 较小的物体 label */
+  a_label: string;
+  /** id 较大的物体 label */
+  b_label: string;
+  /** 相对方向关系：如 "右侧"、"上方"、"左上方"、"重叠" */
+  relation: string;
+  /** 近似像素距离（基于归一化坐标的相对偏移，范围 -1000~1000） */
+  dx: number;
+  dy: number;
+}
+
+/**
+ * 构建空间关系图谱：计算所有物体两两之间的位置关系
+ *
+ * 对 N 个物体生成 N×(N-1)/2 条关系记录，包含方向、距离、重叠判断。
+ * 纯数学计算，零 API 调用。
+ */
+export function buildSpatialGraph(
+  objects: SessionObject[]
+): SpatialGraphEntry[] {
+  if (objects.length <= 1) return [];
+
+  const entries: SpatialGraphEntry[] = [];
+  const sorted = [...objects].sort((a, b) => a.object_id - b.object_id);
+
+  for (let i = 0; i < sorted.length; i++) {
+    for (let j = i + 1; j < sorted.length; j++) {
+      const a = sorted[i];
+      const b = sorted[j];
+      if (!a || !b) continue;
+      const dx = b.cx - a.cx;
+      const dy = b.cy - a.cy;
+
+      // 判断重叠
+      const overlapX = Math.max(0, Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1));
+      const overlapY = Math.max(0, Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1));
+      const areaA = (a.x2 - a.x1) * (a.y2 - a.y1);
+      const areaB = (b.x2 - b.x1) * (b.y2 - b.y1);
+      const overlapRatio =
+        Math.min(areaA, areaB) > 0
+          ? (overlapX * overlapY) / Math.min(areaA, areaB)
+          : 0;
+
+      let relation: string;
+      if (overlapRatio > 0.5) {
+        relation = '重叠/包含';
+      } else {
+        const hDir = Math.abs(dx) < 30 ? '' : dx > 0 ? '右侧' : '左侧';
+        const vDir = Math.abs(dy) < 30 ? '' : dy > 0 ? '下方' : '上方';
+        relation = `${vDir}${hDir}` || '重叠';
+      }
+
+      entries.push({
+        pair: `${String(a.object_id)}-${String(b.object_id)}`,
+        a_label: a.label,
+        b_label: b.label,
+        relation,
+        dx: Math.round(dx),
+        dy: Math.round(dy),
+      });
+    }
+  }
+
+  return entries;
+}
+
+/**
+ * 将空间图谱格式化为文本模型可读的自然语言
+ */
+export function formatSpatialGraph(entries: SpatialGraphEntry[]): string {
+  if (entries.length === 0) return '（物体数量不足，无空间关系图谱）';
+
+  const lines = entries.map(
+    e =>
+      `- ${e.a_label}(id:${e.pair.split('-')[0]}) 与 ${e.b_label}(id:${e.pair.split('-')[1]}): ` +
+      `${e.relation}，水平偏移${e.dx} 垂直偏移${e.dy}`
+  );
+
+  return `【预计算空间关系图谱 · 共${String(entries.length)}条关系】\n${lines.join('\n')}`;
+}

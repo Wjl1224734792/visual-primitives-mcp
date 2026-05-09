@@ -123,7 +123,10 @@ export function registerTool(
       inputSchema: {
         image_path: z
           .string()
-          .describe('本地图片文件的绝对路径，支持 png/jpg/webp/gif/bmp'),
+          .optional()
+          .describe(
+            '本地图片文件的绝对路径。★ 若传入 session_id 且该会话已有缓存数据，可省略此参数实现零 API 成本的图谱推理'
+          ),
         prompt: z
           .string()
           .optional()
@@ -140,9 +143,39 @@ export function registerTool(
       const sessionId: string = params.session_id ?? randomUUID();
 
       try {
-        const { dataUrl, mediaType } = await encodeFileBase64(
-          params.image_path
-        );
+        let dataUrl: string;
+        let mediaType: 'image' | 'video';
+
+        if (params.image_path) {
+          const encoded = await encodeFileBase64(params.image_path);
+          dataUrl = encoded.dataUrl;
+          mediaType = encoded.mediaType;
+        } else if (params.session_id) {
+          // 无新图片：fromCache 模式，跳过视觉 API 直接从缓存推理
+          const result = await pipeline.describe({
+            sessionId,
+            imageBase64: '',
+            mediaType: 'image',
+            prompt: params.prompt,
+            fromCache: true,
+          });
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  session_id: result.sessionId,
+                  description: result.description,
+                  round: result.round,
+                  objects: result.objects,
+                  spatial_graph: result.spatial_graph,
+                }),
+              },
+            ],
+          };
+        } else {
+          throw new Error('必须提供 image_path 或 session_id（含缓存数据）');
+        }
 
         const result = await pipeline.describe({
           sessionId,
@@ -160,6 +193,7 @@ export function registerTool(
                 description: result.description,
                 round: result.round,
                 objects: result.objects,
+                spatial_graph: result.spatial_graph,
               }),
             },
           ],
