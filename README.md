@@ -1,6 +1,6 @@
 # Visual Primitives MCP
 
-[![npm](https://img.shields.io/npm/v/visual-primitives-mcp?label=version)](https://www.npmjs.com/package/visual-primitives-mcp)
+[![version](https://img.shields.io/badge/version-1.1.1-blue)](https://www.npmjs.com/package/visual-primitives-mcp)
 [![license](https://img.shields.io/npm/l/visual-primitives-mcp)](./LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D22.5.0-brightgreen)](https://nodejs.org/)
 
