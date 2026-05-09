@@ -8,7 +8,9 @@
 
 ```
 visual_describe:
-  VisionClient.chat(describe-system) → 自然语言描述 → 入库会话历史
+  VisionClient.analyze(describe-structured) → JSON {description, objects}
+  → parser.ts → validator.ts → normalizer.ts → 入库会话物体
+  → 返回自然语言描述 + 物体列表 + 中心原点位置提示
 
 visual_locate:
   VisionClient.analyze(locate-system) → JSON 坐标

@@ -205,11 +205,12 @@ visual_video_analyze:
 
 ### 3.6 模板层 (`src/templates/`)
 
-| 模板文件              | 用途                           | 关联工具                                  |
-| --------------------- | ------------------------------ | ----------------------------------------- |
-| `describe-system.txt` | 场景描述提示词（自然语言输出） | `visual_describe`, `visual_video_analyze` |
-| `locate-system.txt`   | 坐标定位提示词（JSON 输出）    | `visual_locate`                           |
-| `ocr-system.txt`      | OCR 文字提取提示词             | `visual_ocr`                              |
+| 模板文件                  | 用途                                   | 关联工具          |
+| ------------------------- | -------------------------------------- | ----------------- |
+| `describe-structured.txt` | 场景描述 + 坐标定位提示词（JSON 输出） | `visual_describe` |
+| `describe-system.txt`     | 场景描述提示词（自然语言，已废弃）     | —                 |
+| `locate-system.txt`       | 坐标定位提示词（JSON 输出）            | `visual_locate`   |
+| `ocr-system.txt`          | OCR 文字提取提示词                     | `visual_ocr`      |
 
 ---
 

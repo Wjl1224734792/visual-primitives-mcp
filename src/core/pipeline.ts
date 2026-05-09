@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import type {
   DescribeInput,
   DescribeOutput,
+  DescribeObject,
   LocateInput,
   LocateOutput,
   OcrInput,
@@ -48,8 +49,8 @@ function loadTemplate(filename: string, fallback: string): string {
 }
 
 const describeSystemPrompt = loadTemplate(
-  'describe-system.txt',
-  '你是一个专业的视觉分析助手。请详细描述图片/截图的内容。'
+  'describe-structured.txt',
+  '你是一个结合场景描述与坐标定位的视觉分析专家。'
 );
 
 const locateSystemPrompt = loadTemplate(
@@ -109,6 +110,36 @@ function contextFromHistory(history: ConversationTurn[]): string {
   return `【已有场景上下文】之前的分析已识别出以下画面内容：\n${last.content}`;
 }
 
+/**
+ * 以画面中心为原点计算自然语言位置提示
+ *
+ * 坐标归一化到 precision × precision 范围（通常 1000×1000），
+ * 中心在 (precision/2, precision/2)。输出如"右下区域，偏右250偏下180"。
+ */
+function computePositionHint(
+  centroid: [number, number],
+  precision: number
+): string {
+  const center = precision / 2;
+  const dx = centroid[0] - center;
+  const dy = centroid[1] - center;
+  const adx = Math.abs(dx);
+  const ady = Math.abs(dy);
+  const nearCenter = adx < precision * 0.05 && ady < precision * 0.05;
+
+  if (nearCenter) return '画面中心';
+
+  const hLabel = adx < precision * 0.03 ? '' : dx > 0 ? '右' : '左';
+  const vLabel = ady < precision * 0.03 ? '' : dy > 0 ? '下' : '上';
+  const quadrant = `${vLabel}${hLabel}` || '中心';
+
+  const parts: string[] = [];
+  if (adx >= precision * 0.03) parts.push(`偏${hLabel}${Math.round(adx)}`);
+  if (ady >= precision * 0.03) parts.push(`偏${vLabel}${Math.round(ady)}`);
+
+  return `${quadrant}区域${parts.length > 0 ? `，${parts.join(' ')}` : ''}`;
+}
+
 // ---- PipelineOrchestrator ----
 
 export class PipelineOrchestrator {
@@ -120,7 +151,7 @@ export class PipelineOrchestrator {
     this.visionClient = visionClient;
   }
 
-  /** 场景描述：自然语言输出，存入会话供后续调用注入上下文 */
+  /** 场景描述：JSON 模式输出自然语言 + 结构化物体坐标，注入历史上下文 */
   async describe(input: DescribeInput): Promise<DescribeOutput> {
     const { sessionId, imageBase64, mediaType, prompt } = input;
 
@@ -133,18 +164,49 @@ export class PipelineOrchestrator {
 
     try {
       const dataUrls = [imageBase64];
-      const basePrompt = prompt ?? '请详细描述这张图片/截图的内容。';
+      const basePrompt = prompt ?? '请描述画面内容并识别所有关键物体。';
       const historyContext = contextFromHistory(recentHistory);
       const userPrompt = historyContext
         ? `${historyContext}\n\n现在请回答以下问题（注意结合之前的上下文）：${basePrompt}`
         : basePrompt;
 
-      const content = await this.visionClient.chat(
+      // 使用 JSON 模式：一次调用同时拿到描述文本 + 结构化物体坐标
+      const raw = await this.visionClient.analyze(
         config.describe,
         dataUrls,
         describeSystemPrompt,
         userPrompt
       );
+
+      const parsed: VisualAnalysisResult = parseResponse(raw);
+      const precision = 1000;
+      validateObjects(parsed.objects, precision);
+      const normalized = normalizeObjects(parsed.objects, precision, precision);
+
+      // 存储物体到会话
+      const sessionObjects = visualToSessionObjects(
+        normalized,
+        mediaType,
+        round
+      );
+      if (sessionObjects.length > 0) {
+        this.sessionManager.upsertObjects(sessionId, sessionObjects, 'augment');
+      }
+
+      // 为每个物体计算中心原点位置提示
+      const objects: DescribeObject[] = normalized.map(obj => ({
+        id: obj.id,
+        label: obj.label,
+        bbox: obj.bbox,
+        centroid: obj.centroid,
+        color: obj.color,
+        state: obj.state,
+        relevance: obj.relevance,
+        position_hint: computePositionHint(obj.centroid, precision),
+      }));
+
+      const description =
+        parsed.reasoning ?? '（视觉模型已识别画面中的关键物体）';
 
       this.sessionManager.addConversationTurn(
         sessionId,
@@ -156,11 +218,14 @@ export class PipelineOrchestrator {
         sessionId,
         round,
         'assistant',
-        content.substring(0, 500)
+        description.substring(0, 500)
       );
 
-      logger.info({ sessionId, round }, 'Pipeline.describe: 完成');
-      return { sessionId, description: content, round };
+      logger.info(
+        { sessionId, round, objectsCount: objects.length },
+        'Pipeline.describe: 完成'
+      );
+      return { sessionId, description, round, objects };
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       logger.error({ error: errMsg, sessionId }, 'Pipeline.describe: 失败');

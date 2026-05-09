@@ -155,6 +155,7 @@ export function registerTool(
                 session_id: result.sessionId,
                 description: result.description,
                 round: result.round,
+                objects: result.objects,
               }),
             },
           ],

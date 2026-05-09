@@ -16,6 +16,7 @@ export interface VisualObject {
   label: string;
   bbox: [number, number, number, number];
   centroid: [number, number];
+  color?: string;
   state?: string;
   relevance?: string;
   timestamp_range?: [number, number] | null;
@@ -120,11 +121,26 @@ export interface DescribeInput {
   prompt?: string;
 }
 
-/** describe 管道输出 */
+/** describe 管道输出（含物体坐标 + 中心原点位置提示） */
 export interface DescribeOutput {
   sessionId: string;
   description: string;
   round: number;
+  /** 识别到的物体列表（含相对画面中心的位置提示） */
+  objects?: DescribeObject[];
+}
+
+/** describe 返回的物体信息 */
+export interface DescribeObject {
+  id: number;
+  label: string;
+  bbox: [number, number, number, number];
+  centroid: [number, number];
+  color?: string;
+  state?: string;
+  relevance?: string;
+  /** 自然语言位置提示，以画面中心为原点（如"右下区域，偏右250偏下180"） */
+  position_hint: string;
 }
 
 /** locate 管道输入 */

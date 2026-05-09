@@ -239,9 +239,21 @@ MCP_TRANSPORT=http-stream PORT=3000 npm start
 {
   "session_id": "uuid-string",
   "description": "页面包含顶部导航栏（Logo、搜索框）...",
-  "round": 1
+  "round": 1,
+  "objects": [
+    {
+      "id": 1,
+      "label": "新建按钮",
+      "bbox": [850, 620, 920, 660],
+      "centroid": [885, 640],
+      "color": "蓝色",
+      "position_hint": "右下区域，偏右385偏下140"
+    }
+  ]
 }
 ```
+
+> `objects` 携带画面中所有关键物体的坐标和颜色。`position_hint` 以画面中心为原点，LLM 可直接读"右下区域"推理，无需换算左上角坐标。
 
 ### `visual_locate` — 坐标定位
 

@@ -197,7 +197,32 @@ describe('PipelineOrchestrator', () => {
   // describe()
   // ============================================================
   describe('describe()', () => {
-    it('应返回场景描述文本并记录会话', async () => {
+    it('应返回场景描述 + 物体坐标 + 位置提示，并存入会话', async () => {
+      // 覆盖 parser mock 返回 describe 结构化数据
+      parseResponseMock.mockReturnValueOnce({
+        reasoning: '登录页面，包含用户名输入框和密码输入框以及登录按钮',
+        objects: [
+          {
+            id: 1,
+            label: '用户名输入框',
+            bbox: [300, 250, 700, 300],
+            centroid: [500, 275],
+            color: '白色',
+            state: '正常',
+            relevance: '高',
+          },
+          {
+            id: 2,
+            label: '登录按钮',
+            bbox: [400, 600, 600, 660],
+            centroid: [500, 630],
+            color: '蓝色',
+            state: '正常',
+            relevance: '高',
+          },
+        ],
+        spatial_relationships: ['用户名输入框在登录按钮的上方'],
+      });
       const mockSessionManager = {
         getSession: vi.fn().mockReturnValue({
           session: {
@@ -211,13 +236,12 @@ describe('PipelineOrchestrator', () => {
         } as SessionContext),
         createSession: vi.fn(),
         addConversationTurn: vi.fn(),
+        upsertObjects: vi.fn(),
       };
 
       const mockVisionClient = {
-        chat: vi
-          .fn()
-          .mockResolvedValue('登录页面，包含用户名输入框和密码输入框'),
-        analyze: vi.fn(),
+        chat: vi.fn(),
+        analyze: vi.fn().mockResolvedValue('{}'),
       };
 
       const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
@@ -231,13 +255,33 @@ describe('PipelineOrchestrator', () => {
       });
 
       expect(result.sessionId).toBe('d1');
-      expect(result.description).toBe('登录页面，包含用户名输入框和密码输入框');
+      expect(result.description).toContain('登录页面');
       expect(result.round).toBeGreaterThan(0);
-      expect(mockVisionClient.chat).toHaveBeenCalled();
+      expect(result.objects).toBeDefined();
+      expect(result.objects!.length).toBe(2);
+
+      // 验证登录按钮的位置提示（centroid[500,630] → 画面中心偏下）
+      const loginBtn = result.objects!.find(o => o.label === '登录按钮');
+      expect(loginBtn).toBeDefined();
+      expect(loginBtn!.position_hint).toContain('下');
+      expect(loginBtn!.color).toBe('蓝色');
+
+      // 用户名输入框（centroid[500,275] → 画面中心偏上）
+      const inputField = result.objects!.find(o => o.label === '用户名输入框');
+      expect(inputField!.position_hint).toContain('上');
+
+      expect(mockVisionClient.analyze).toHaveBeenCalled();
+      expect(mockSessionManager.upsertObjects).toHaveBeenCalled();
       expect(mockSessionManager.addConversationTurn).toHaveBeenCalledTimes(2);
     });
 
     it('有历史对话时应在 prompt 中注入上下文', async () => {
+      parseResponseMock.mockReturnValueOnce({
+        reasoning: '搜索框在导航栏右侧',
+        objects: [],
+        spatial_relationships: [],
+      });
+
       const mockSessionManager = {
         getSession: vi.fn().mockReturnValue({
           session: {
@@ -264,11 +308,12 @@ describe('PipelineOrchestrator', () => {
         } as SessionContext),
         createSession: vi.fn(),
         addConversationTurn: vi.fn(),
+        upsertObjects: vi.fn(),
       };
 
       const mockVisionClient = {
-        chat: vi.fn().mockResolvedValue('搜索框在导航栏右侧'),
-        analyze: vi.fn(),
+        chat: vi.fn(),
+        analyze: vi.fn().mockResolvedValue('{}'),
       };
 
       const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
@@ -282,8 +327,8 @@ describe('PipelineOrchestrator', () => {
         prompt: '搜索框在哪',
       });
 
-      // 验证 chat 被调用时 prompt 注入了历史上下文
-      const callArgs = mockVisionClient.chat.mock.calls[0] as unknown[];
+      // 验证 analyze 被调用时 prompt 注入了历史上下文
+      const callArgs = mockVisionClient.analyze.mock.calls[0] as unknown[];
       const userPrompt = callArgs[3] as string;
       expect(userPrompt).toContain('已有场景上下文');
       expect(userPrompt).toContain('导航栏和搜索框');
@@ -304,11 +349,12 @@ describe('PipelineOrchestrator', () => {
         } as SessionContext),
         createSession: vi.fn(),
         addConversationTurn: vi.fn(),
+        upsertObjects: vi.fn(),
       };
 
       const mockVisionClient = {
-        chat: vi.fn().mockRejectedValue(new Error('网络超时')),
-        analyze: vi.fn(),
+        chat: vi.fn(),
+        analyze: vi.fn().mockRejectedValue(new Error('网络超时')),
       };
 
       const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
