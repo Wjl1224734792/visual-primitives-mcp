@@ -105,12 +105,12 @@
 
 注册 4 个工具，每个工具聚焦单一任务：
 
-| 工具名                 | 任务                   | 系统提示词            |
-| ---------------------- | ---------------------- | --------------------- |
-| `visual_describe`      | 场景描述，自然语言输出 | `describe-system.txt` |
-| `visual_locate`        | 坐标定位，JSON 输出    | `locate-system.txt`   |
-| `visual_ocr`           | 文字/表格提取          | `ocr-system.txt`      |
-| `visual_video_analyze` | 视频内容分析           | `describe-system.txt` |
+| 工具名                 | 任务                                  | 系统提示词                |
+| ---------------------- | ------------------------------------- | ------------------------- |
+| `visual_describe`      | 场景描述 + 物体识别 + 图谱，JSON 输出 | `describe-structured.txt` |
+| `visual_locate`        | 坐标定位，JSON 输出                   | `locate-system.txt`       |
+| `visual_ocr`           | 文字/表格提取                         | `ocr-system.txt`          |
+| `visual_video_analyze` | 视频内容分析                          | `describe-system.txt`     |
 
 - 每个工具独立 Zod 校验，自动生成 `session_id`
 - `encodeFileBase64()` 读取本地文件 → Base64 data URL
@@ -126,24 +126,26 @@
 
 ```
 visual_describe:
-  1. 注入历史描述上下文（如有）→ data URL → VisionClient.chat(describe-system) → 自然语言描述
-  2. 存储描述到会话历史 → 返回（支持多轮追问）
+  1. 注入历史上下文 → [fromCache?] 跳过视觉 API | 调用 VisionClient.analyze(describe-structured) → JSON
+  2. 解析/校验/归一化物体坐标 → 入库
+  3. 构建空间关系图谱（纯本地计算）→ 返回 description + objects + spatial_graph
 
 visual_locate:
   1. [可选] 新媒体 → VisionClient.analyze(locate-system) → JSON
-  2. 注入会话上下文中之前的 describe 结果
+  2. 注入会话上下文（历史描述 + 物体缓存 + 图谱）
   3. 解析/校验/归一化坐标 → 入库 → 返回
 
 visual_ocr:
   1. data URL → VisionClient.chat(ocr-system) → 返回文字
 
 visual_video_analyze:
-  1. 注入历史分析上下文（如有）→ data URL → VisionClient.chat(describe-system) → 返回描述（支持多轮追问）
+  1. 注入历史上下文 → data URL → VisionClient.chat(describe-system) → 返回描述
 ```
 
 - PipelineOrchestrator 只依赖 SessionManager + VisionClient，无中间适配层
 - data URL 由 handler 的 `encodeFileBase64()` 一次性准备好，pipeline 直接消费
 - describe / video_analyze / locate 均自动注入最近一轮的 assistant 响应作为上下文
+- describe 支持 `fromCache` 模式：有缓存物体时跳过视觉 API，零成本图谱推理
 
 #### `vision-client.ts` — 视觉模型客户端
 
@@ -160,23 +162,23 @@ visual_video_analyze:
 
 - 主路径：`JSON.parse(content)`
 - 备用路径：正则提取第一个完整 JSON `/\{[\s\S]*\}/`
-- 仅 `visual_locate` 使用
+- `visual_describe` 和 `visual_locate` 共用
 
 #### `validator.ts` — 坐标校验器
 
 - 6 条规则：objects 非空 / ID 唯一 / bbox 范围 / x1<x2 y1<y2 / centroid 在 bbox 内 / 扩展字段格式
-- 仅 `visual_locate` 使用
+- `visual_describe` 和 `visual_locate` 共用
 
 #### `normalizer.ts` — 坐标归一化器
 
-- 0-1000 → 0-100 等比缩放
-- 同精度跳过
-- 不可变操作
-- 仅 `visual_locate` 使用
+- 0-1000 → 0-100 等比缩放，同精度跳过，不可变操作
+- `visual_describe` 和 `visual_locate` 共用
 
-#### `prompt-builder.ts` — 提示词构建器
+#### `prompt-builder.ts` — 提示词 + 空间图谱构建器
 
-- 输出结构：`[多模态空间信息] → [推理规则] → [会话历史] → [用户问题]`
+- `buildAugmentedPrompt()`：`[多模态空间信息] → [推理规则] → [会话历史] → [用户问题]`
+- `buildSpatialGraph()`：计算 N×(N-1)/2 条物体两两空间关系（纯数学，零 API 成本）
+- `formatSpatialGraph()`：格式化为文本模型可读的自然语言图谱
 - 会话历史注入包含之前的 describe 结果，为 locate 提供上下文
 
 #### `session-manager.ts` — 会话管理器
@@ -219,19 +221,27 @@ visual_video_analyze:
 ### 两阶段推理流程（推荐）
 
 ```
-Step 1: visual_describe
+Step 1: visual_describe (首次)
   MCP Client → tool-handlers.ts → encodeFileBase64() → data URL
   → PipelineOrchestrator.describe()
-  → VisionClient.chat(describe-system) → 自然语言描述
-  → 描述存入会话历史 → 返回
+  → VisionClient.analyze(describe-structured) → JSON {description, objects}
+  → Parser → Validator → Normalizer → 入库物体
+  → buildSpatialGraph() 构建空间图谱（纯本地计算）
+  → 返回 description + objects + spatial_graph
 
-Step 2: visual_locate
+Step 1b: visual_describe (追问，fromCache 模式)
+  MCP Client → tool-handlers.ts → 省略 image_path
+  → PipelineOrchestrator.describe(fromCache=true)
+  → 跳过视觉 API，从会话缓存加载物体
+  → buildSpatialGraph() 重新计算最新图谱
+  → 零 API 成本返回
+
+Step 2: visual_locate (坐标定位)
   MCP Client → tool-handlers.ts → [可选] encodeFileBase64()
   → PipelineOrchestrator.locate()
-  → 从 SessionManager 加载之前的 describe 结果作为上下文
-  → VisionClient.analyze(locate-system) → JSON 坐标
-  → Parser → Validator → Normalizer
-  → SessionManager.upsertObjects → 持久化
+  → 从 SessionManager 加载历史上下文 + 物体缓存 + 图谱
+  → [新媒体] VisionClient.analyze(locate-system) → JSON 坐标
+  → Parser → Validator → Normalizer → 入库
   → 返回 augmented_prompt + coordinates
 ```
 

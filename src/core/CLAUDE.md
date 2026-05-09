@@ -8,9 +8,11 @@
 
 ```
 visual_describe:
-  VisionClient.analyze(describe-structured) → JSON {description, objects}
+  [fromCache 模式] 跳过 API，从缓存推理
+  [正常模式] VisionClient.analyze(describe-structured) → JSON {description, objects}
   → parser.ts → validator.ts → normalizer.ts → 入库会话物体
-  → 返回自然语言描述 + 物体列表 + 中心原点位置提示
+  → buildSpatialGraph() 构建空间图谱（纯数学，零 API 成本）
+  → 返回描述 + 物体列表 + position_hint + spatial_graph
 
 visual_locate:
   VisionClient.analyze(locate-system) → JSON 坐标
@@ -31,7 +33,7 @@ visual_video_analyze:
 | `parser.ts`          | JSON 解析 + 容错（仅 locate）               |
 | `validator.ts`       | 坐标校验（仅 locate）                       |
 | `normalizer.ts`      | 精度归一化（仅 locate）                     |
-| `prompt-builder.ts`  | 增强提示词构建 + 历史描述上下文注入         |
+| `prompt-builder.ts`  | 增强提示词 + 空间图谱构建 + 历史上下文注入  |
 | `vision-client.ts`   | OpenAI 兼容视觉客户端（`analyze` + `chat`） |
 | `session-manager.ts` | SQLite 会话持久化                           |
 | `sqlite-wrapper.ts`  | node:sqlite Vite 兼容适配层                 |
