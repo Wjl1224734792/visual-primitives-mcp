@@ -1,6 +1,6 @@
 # Visual Primitives MCP
 
-[![version](https://img.shields.io/badge/version-1.2.1-blue)](https://www.npmjs.com/package/visual-primitives-mcp)
+[![version](https://img.shields.io/badge/version-1.4.0-blue)](https://www.npmjs.com/package/visual-primitives-mcp)
 [![npm](https://img.shields.io/npm/v/visual-primitives-mcp?color=red)](https://www.npmjs.com/package/visual-primitives-mcp)
 [![license](https://img.shields.io/npm/l/visual-primitives-mcp)](./LICENSE)
 
@@ -10,7 +10,7 @@
 
 ## 核心能力
 
-- **任务调度**：4 个专注工具各司其职——描述、定位、OCR、视频分析
+- **任务调度**：6 个专注工具各司其职——描述（5 种模式）、定位、差异对比、错误诊断、OCR、视频分析
 - **两阶段推理**：`visual_describe` 先理解场景 → `visual_locate` 再精确坐标定位
 - **多模态统一管道**：图片/视频/文档统一转为 Base64 图像列表，复用同一分析管道
 - **有状态多轮会话**：基于 SQLite 持久化，跨轮复用已标注物体，0 额外视觉成本
@@ -165,32 +165,36 @@ VISION_VIDEO_MODEL = "qwen3-vl-plus"
 cp .env.example .env
 ```
 
-| 变量名                     | 说明                                      | 默认值                | 必填 |
-| -------------------------- | ----------------------------------------- | --------------------- | ---- |
-| 变量名                     | 说明                                      | 默认值                | 必填 |
-| ----------------------     | ----------------------------------------- | --------------------- | ---- |
-| `VISION_API_BASE_URL`      | 视觉模型 API 基础 URL                     | —                     | 是   |
-| `VISION_API_KEY`           | API 密钥                                  | —                     | 是   |
-| `VISION_MODEL_NAME`        | 模型名称                                  | —                     | 是   |
-| `VISION_DESCRIBE_BASE_URL` | describe 专用 baseUrl（不配回退默认值）   | —                     | 否   |
-| `VISION_DESCRIBE_API_KEY`  | describe 专用 apiKey（不配回退默认值）    | —                     | 否   |
-| `VISION_DESCRIBE_MODEL`    | describe 专用 model（不配回退默认值）     | —                     | 否   |
-| `VISION_LOCATE_BASE_URL`   | locate 专用 baseUrl（不配回退默认值）     | —                     | 否   |
-| `VISION_LOCATE_API_KEY`    | locate 专用 apiKey（不配回退默认值）      | —                     | 否   |
-| `VISION_LOCATE_MODEL`      | locate 专用 model（不配回退默认值）       | —                     | 否   |
-| `VISION_OCR_BASE_URL`      | OCR 专用 baseUrl（不配回退默认值）        | —                     | 否   |
-| `VISION_OCR_API_KEY`       | OCR 专用 apiKey（不配回退默认值）         | —                     | 否   |
-| `VISION_OCR_MODEL`         | OCR 专用 model（不配回退默认值）          | —                     | 否   |
-| `VISION_VIDEO_BASE_URL`    | video 专用 baseUrl（不配回退默认值）      | —                     | 否   |
-| `VISION_VIDEO_API_KEY`     | video 专用 apiKey（不配回退默认值）       | —                     | 否   |
-| `VISION_VIDEO_MODEL`       | video 专用 model（不配回退默认值）        | —                     | 否   |
-| `COORDINATE_PRECISION`     | 坐标归一化精度（`0-100` 或 `0-1000`）     | `0-1000`              | 否   |
-| `MCP_TRANSPORT`            | 传输协议（`stdio`/`sse`/`http-stream`）   | `stdio`               | 否   |
-| `LOG_LEVEL`                | 日志级别（`debug`/`info`/`warn`/`error`） | `info`                | 否   |
-| `TIMEOUT_MS`               | API 调用超时（毫秒）                      | `45000`               | 否   |
-| `SESSION_TTL_SECONDS`      | 会话过期时间（秒）                        | `3600`                | 否   |
-| `DB_PATH`                  | SQLite 数据库文件路径                     | `./data/grounding.db` | 否   |
-| `PORT`                     | SSE/HTTP Stream 模式端口                  | `3000`                | 否   |
+| 变量名                        | 说明                                      | 默认值                | 必填 |
+| ----------------------------- | ----------------------------------------- | --------------------- | ---- |
+| `VISION_API_BASE_URL`         | 视觉模型 API 基础 URL                     | —                     | 是   |
+| `VISION_API_KEY`              | API 密钥                                  | —                     | 是   |
+| `VISION_MODEL_NAME`           | 模型名称                                  | —                     | 是   |
+| `VISION_DESCRIBE_BASE_URL`    | describe 专用 baseUrl（不配回退默认值）   | —                     | 否   |
+| `VISION_DESCRIBE_API_KEY`     | describe 专用 apiKey（不配回退默认值）    | —                     | 否   |
+| `VISION_DESCRIBE_MODEL`       | describe 专用 model（不配回退默认值）     | —                     | 否   |
+| `VISION_LOCATE_BASE_URL`      | locate 专用 baseUrl（不配回退默认值）     | —                     | 否   |
+| `VISION_LOCATE_API_KEY`       | locate 专用 apiKey（不配回退默认值）      | —                     | 否   |
+| `VISION_LOCATE_MODEL`         | locate 专用 model（不配回退默认值）       | —                     | 否   |
+| `VISION_OCR_BASE_URL`         | OCR 专用 baseUrl（不配回退默认值）        | —                     | 否   |
+| `VISION_OCR_API_KEY`          | OCR 专用 apiKey（不配回退默认值）         | —                     | 否   |
+| `VISION_OCR_MODEL`            | OCR 专用 model（不配回退默认值）          | —                     | 否   |
+| `VISION_VIDEO_BASE_URL`       | video 专用 baseUrl（不配回退默认值）      | —                     | 否   |
+| `VISION_VIDEO_API_KEY`        | video 专用 apiKey（不配回退默认值）       | —                     | 否   |
+| `VISION_VIDEO_MODEL`          | video 专用 model（不配回退默认值）        | —                     | 否   |
+| `COORDINATE_PRECISION`        | 坐标归一化精度（`0-100` 或 `0-1000`）     | `0-1000`              | 否   |
+| `MCP_TRANSPORT`               | 传输协议（`stdio`/`sse`/`http-stream`）   | `stdio`               | 否   |
+| `LOG_LEVEL`                   | 日志级别（`debug`/`info`/`warn`/`error`） | `info`                | 否   |
+| `TIMEOUT_MS`                  | API 调用超时（毫秒）                      | `45000`               | 否   |
+| `SESSION_TTL_SECONDS`         | 会话过期时间（秒）                        | `3600`                | 否   |
+| `DB_PATH`                     | SQLite 数据库文件路径                     | `./data/grounding.db` | 否   |
+| `PORT`                        | SSE/HTTP Stream 模式端口                  | `3000`                | 否   |
+| `PREPROCESS_ENABLED`          | 图片预处理开关（`true`/`false`）          | `true`                | 否   |
+| `CIRCUIT_BREAKER_ENABLED`     | 断路器开关（`true`/`false`）              | `true`                | 否   |
+| `CIRCUIT_BREAKER_THRESHOLD`   | 连续失败 N 次后熔断                       | `5`                   | 否   |
+| `CIRCUIT_BREAKER_RECOVERY_MS` | 熔断恢复时间（毫秒）                      | `30000`               | 否   |
+| `MAX_CONCURRENCY`             | 最大并发 API 调用数                       | `10`                  | 否   |
+| `METRICS_ENABLED`             | 指标收集开关（`true`/`false`）            | `true`                | 否   |
 
 ## 启动方式
 
@@ -218,24 +222,41 @@ MCP_TRANSPORT=http-stream PORT=3000 npm start
 
 ## MCP 工具
 
-### 新工具（推荐）
+### 6 个工具
 
-| 工具                       | 用途               | 关键参数                                                          |
-| -------------------------- | ------------------ | ----------------------------------------------------------------- |
-| **`visual_describe`**      | 场景描述（第一步） | `image_path`, `prompt?`, `session_id?`                            |
-| **`visual_locate`**        | 坐标定位（第二步） | `question`, `image_path?`, `session_id?`, `coordinate_precision?` |
-| **`visual_ocr`**           | 文字/表格提取      | `image_path`, `prompt?`                                           |
-| **`visual_video_analyze`** | 视频内容分析       | `video_path`, `prompt?`, `session_id?`                            |
+| 工具                       | 用途                     | 关键参数                                                          |
+| -------------------------- | ------------------------ | ----------------------------------------------------------------- |
+| **`visual_describe`**      | 场景描述（5 种分析模式） | `image_path`, `prompt?`, `session_id?`, `task?`                   |
+| **`visual_locate`**        | 坐标定位（第二步）       | `question`, `image_path?`, `session_id?`, `coordinate_precision?` |
+| **`visual_compare`** ⭐    | 截图差异对比             | `image_path_1`, `image_path_2`, `focus?`                          |
+| **`visual_diagnose`** ⭐   | 错误截图诊断             | `image_path`, `context?`                                          |
+| **`visual_ocr`**           | 文字/表格提取            | `image_path`, `prompt?`                                           |
+| **`visual_video_analyze`** | 视频内容分析             | `video_path`, `prompt?`, `session_id?`                            |
 
-### `visual_describe` — 场景描述
+> ⭐ = v1.4.0 新增
+
+### `visual_describe` — 场景描述（支持 5 种模式）
 
 对图片/截图进行场景描述 + 关键物体识别。**支持多轮对话**：传入 `session_id` 可复用之前的描述上下文，实现追问式交互。
 
-| 参数         | 类型   | 必填 | 说明                      |
-| ------------ | ------ | ---- | ------------------------- |
-| `image_path` | string | 是   | 本地图片绝对路径          |
-| `prompt`     | string | 否   | 分析指令，默认全面描述    |
-| `session_id` | string | 否   | 会话 ID，首次不传自动生成 |
+| 参数         | 类型   | 必填 | 说明                                                                         |
+| ------------ | ------ | ---- | ---------------------------------------------------------------------------- |
+| `image_path` | string | 否*  | 本地图片路径或 HTTP(S) URL                                                   |
+| `prompt`     | string | 否   | 分析指令，默认全面描述                                                       |
+| `session_id` | string | 否   | 会话 ID，首次不传自动生成                                                    |
+| `task`       | string | 否   | 分析模式：`general`（默认）/ `diagram` / `dataviz` / `ui_code` / `ui_prompt` |
+
+> \* 若传入 `session_id` 且该会话已有缓存数据，可省略 `image_path` 实现零 API 成本推理。
+
+**task 模式说明：**
+
+| task 值           | 说明                              |
+| ----------------- | --------------------------------- |
+| `general`（默认） | 场景描述 + 物体识别 + 空间图谱    |
+| `diagram`         | 架构图/流程图/UML/ER 图结构化解读 |
+| `dataviz`         | 图表类型→轴标签→趋势→异常点→摘要  |
+| `ui_code`         | UI 截图→生成 React+Tailwind 代码  |
+| `ui_prompt`       | UI 截图→生成可复现的 LLM 提示词   |
 
 **输出 JSON Schema**：
 
@@ -297,13 +318,63 @@ MCP_TRANSPORT=http-stream PORT=3000 npm start
 }
 ```
 
+### `visual_compare` ⭐ — 截图差异对比
+
+精确对比两张 UI 截图的视觉差异，按严重程度分类输出。适用于 UI 回归测试、CSS 变更验证、跨版本界面对比。
+
+| 参数           | 类型   | 必填 | 说明                                                          |
+| -------------- | ------ | ---- | ------------------------------------------------------------- |
+| `image_path_1` | string | 是   | 修改前截图（本地路径或 URL）                                  |
+| `image_path_2` | string | 是   | 修改后截图（本地路径或 URL）                                  |
+| `focus`        | string | 否   | 关注点：`all`(默认) / `layout` / `color` / `text` / `element` |
+
+**返回值**：
+
+```json
+{
+  "summary": "共发现 7 处差异：1 处严重，2 处轻微，4 处无影响",
+  "differences": [
+    {
+      "id": 1,
+      "severity": "critical",
+      "type": "layout",
+      "description": "导航栏高度从 64px 缩减为 56px",
+      "location_hint": "顶部区域，横跨整个页面宽度",
+      "bbox_approx": [0, 0, 1000, 80]
+    }
+  ]
+}
+```
+
+### `visual_diagnose` ⭐ — 错误截图诊断
+
+分析错误截图，给出结构化诊断：发生了什么 → 根因 → 修复建议 → 相关文件猜测。适用于前端报错截图、后端日志截图、终端错误截图、CI 失败截图。
+
+| 参数         | 类型   | 必填 | 说明                         |
+| ------------ | ------ | ---- | ---------------------------- |
+| `image_path` | string | 是   | 错误截图（本地路径或 URL）   |
+| `context`    | string | 否   | 额外上下文（如"React 项目"） |
+
+**返回值**：
+
+```json
+{
+  "diagnosis": "React 组件渲染阶段抛出了 TypeError 异常...",
+  "root_cause": "在 UserProfile 组件第 42 行引用了未定义变量 userName",
+  "suggested_fix": "在 render 之前添加空值检查或初始化默认值",
+  "severity": "error",
+  "error_type": "runtime",
+  "related_hints": ["检查 UserProfile.tsx 第 42 行", "确认 API 返回结构"]
+}
+```
+
 ### `visual_ocr` — 文字识别
 
 从图片中提取文字和表格内容。
 
 | 参数         | 类型   | 必填 | 说明                                 |
 | ------------ | ------ | ---- | ------------------------------------ |
-| `image_path` | string | 是   | 本地图片绝对路径                     |
+| `image_path` | string | 是   | 本地图片路径或 HTTP(S) URL           |
 | `prompt`     | string | 否   | 处理指令，如"只提取表格""翻译为英文" |
 
 **返回值**：直接返回识别出的文字内容。
@@ -355,18 +426,18 @@ MCP_TRANSPORT=http-stream PORT=3000 npm start
 
 ## 支持的输入格式
 
-| 格式 | 扩展名          | 大小限制 | 说明                             |
-| ---- | --------------- | -------- | -------------------------------- |
-| JPEG | `.jpg`, `.jpeg` | <= 20MB  | 直接传本地路径                   |
-| PNG  | `.png`          | <= 20MB  | 直接传本地路径                   |
-| GIF  | `.gif`          | <= 20MB  | 直接传本地路径                   |
-| WebP | `.webp`         | <= 20MB  | 直接传本地路径                   |
-| BMP  | `.bmp`          | <= 20MB  | 直接传本地路径                   |
-| MP4  | `.mp4`          | <= 100MB | 直接发送 video_url，模型原生理解 |
-| MOV  | `.mov`          | <= 100MB | 同上                             |
-| AVI  | `.avi`          | <= 100MB | 同上                             |
-| MKV  | `.mkv`          | <= 100MB | 同上                             |
-| WebM | `.webm`         | <= 100MB | 同上                             |
+| 格式 | 扩展名          | 大小限制 | 说明                   |
+| ---- | --------------- | -------- | ---------------------- |
+| JPEG | `.jpg`, `.jpeg` | <= 20MB  | 本地路径或 HTTP(S) URL |
+| PNG  | `.png`          | <= 20MB  | 同上                   |
+| GIF  | `.gif`          | <= 20MB  | 同上                   |
+| WebP | `.webp`         | <= 20MB  | 同上                   |
+| BMP  | `.bmp`          | <= 20MB  | 同上                   |
+| MP4  | `.mp4`          | <= 100MB | 同上                   |
+| MOV  | `.mov`          | <= 100MB | 同上                   |
+| AVI  | `.avi`          | <= 100MB | 同上                   |
+| MKV  | `.mkv`          | <= 100MB | 同上                   |
+| WebM | `.webm`         | <= 100MB | 同上                   |
 
 ## 开发指南
 
@@ -410,26 +481,38 @@ visual-primitives-mcp/
 │   │   └── tool-handlers.ts        # MCP 工具注册（4 个工具）
 │   ├── core/
 │   │   ├── CLAUDE.md               # 核心管道层指引
-│   │   ├── pipeline.ts             # 管道编排器（任务调度）
+│   │   ├── pipeline.ts             # 管道编排器（6 个任务方法）
 │   │   ├── parser.ts               # JSON 解析与容错
 │   │   ├── validator.ts            # 坐标与物体验证
 │   │   ├── normalizer.ts           # 坐标归一化
-│   │   ├── prompt-builder.ts       # 增强提示词构建器
-│   │   ├── vision-client.ts        # OpenAI 兼容视觉客户端
+│   │   ├── prompt-builder.ts       # 增强提示词 + 空间图谱
+│   │   ├── vision-client.ts        # OpenAI 兼容视觉客户端（含断路器/并发控制）
+│   │   ├── image-preprocessor.ts   # 图片智能预处理（sharp）
 │   │   ├── session-manager.ts      # SQLite 会话管理
 │   │   └── sqlite-wrapper.ts       # node:sqlite Vite 兼容适配
 │   ├── templates/
-│   │   ├── describe-system.txt     # 场景描述系统提示词
+│   │   ├── describe-structured.txt # 场景描述（general 模式）
+│   │   ├── describe-diagram.txt    # 技术图表分析
+│   │   ├── describe-dataviz.txt    # 数据可视化分析
+│   │   ├── describe-ui-code.txt    # UI→React 代码
+│   │   ├── describe-ui-prompt.txt  # UI→LLM 提示词
 │   │   ├── locate-system.txt       # 坐标定位系统提示词
-│   │   └── ocr-system.txt          # OCR 系统提示词
+│   │   ├── ocr-system.txt          # OCR 系统提示词
+│   │   ├── compare-system.txt      # 截图差异对比
+│   │   └── diagnose-system.txt     # 错误诊断
 │   └── utils/
 │       ├── CLAUDE.md               # 工具层指引
-│       ├── logger.ts               # 结构化日志
-│       └── retry.ts                # 指数退避重试
+│       ├── logger.ts               # pino 结构化日志
+│       ├── retry.ts                # 指数退避重试
+│       ├── circuit-breaker.ts      # 断路器（三态状态机）
+│       ├── concurrency-limiter.ts  # 并发控制（信号量）
+│       └── metrics.ts              # 指标收集注册表
 ├── tests/
 │   └── CLAUDE.md                   # 测试套件指引
 ├── bin/
 │   └── cli.js                      # CLI 入口
+├── .changeset/                     # changesets 版本管理配置
+├── CHANGELOG.md                    # 版本变更日志
 ├── data/                           # SQLite 数据库文件（相对于 CWD）
 └── package.json
 ```
@@ -515,7 +598,7 @@ flowchart TB
 - **参数校验**：Zod
 - **日志**：pino
 - **持久化**：node:sqlite（内置，WAL 模式）
-- **测试**：vitest
+- **测试**：vitest（13 文件 174 用例）
 
 ## License
 

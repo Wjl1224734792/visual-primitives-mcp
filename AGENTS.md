@@ -67,7 +67,7 @@
 #### `server.ts` — 服务主入口
 
 - 初始化链：`SessionManager → VisionClient → PipelineOrchestrator → McpServer`
-- 注册 4 个视觉任务工具（describe/locate/ocr/video 均支持多轮会话上下文注入）
+- 注册 6 个视觉任务工具（describe/locate/ocr/video/compare/diagnose 均支持会话上下文注入）
 - 根据 `MCP_TRANSPORT` 环境变量选择传输模式（stdio / sse / http-stream）
 - Hono 仅在 SSE/HTTP Stream 模式动态加载，stdio 零开销
 - 启动 60s 间隔的 TTL 会话清理定时器
@@ -75,7 +75,7 @@
 
 #### `config.ts` — 配置体系
 
-- Zod schema 校验 24 个环境变量（3 必填 21 可选）
+- Zod schema 校验 24+ 个环境变量（3 必填）
 - 分级模型配置：每工具独立三元组 (baseUrl, apiKey, model)，不配逐字段回退默认值
 - 必填项缺失时拒绝启动并输出明确错误
 - `DB_PATH` 目录不存在时自动 `mkdirSync`
@@ -103,14 +103,20 @@
 
 #### `tool-handlers.ts` — MCP 工具注册
 
-注册 4 个工具，每个工具聚焦单一任务：
+注册 6 个工具，每个工具聚焦单一任务：
 
-| 工具名                 | 任务                                  | 系统提示词                |
-| ---------------------- | ------------------------------------- | ------------------------- |
-| `visual_describe`      | 场景描述 + 物体识别 + 图谱，JSON 输出 | `describe-structured.txt` |
-| `visual_locate`        | 坐标定位，JSON 输出                   | `locate-system.txt`       |
-| `visual_ocr`           | 文字/表格提取                         | `ocr-system.txt`          |
-| `visual_video_analyze` | 视频内容分析                          | `describe-system.txt`     |
+| 工具名                 | 任务                                             | 系统提示词                                 |
+| ---------------------- | ------------------------------------------------ | ------------------------------------------ |
+| `visual_describe`      | 场景描述 + 物体识别（5 种 task 模式），JSON 输出 | `describe-structured.txt` + 4 个 task 模板 |
+| `visual_locate`        | 坐标定位，JSON 输出                              | `locate-system.txt`                        |
+| `visual_compare` ⭐    | 截图差异对比（critical/minor/cosmetic）          | `compare-system.txt`                       |
+| `visual_diagnose` ⭐   | 错误截图结构化诊断                               | `diagnose-system.txt`                      |
+| `visual_ocr`           | 文字/表格提取                                    | `ocr-system.txt`                           |
+| `visual_video_analyze` | 视频内容分析                                     | `describe-system.txt`                      |
+
+> ⭐ = v1.4.0 新增
+
+此外新增 URL 输入支持（`resolveImageSource()` 自动 fetch HTTP(S) URL）、图片智能预处理（sharp resize/压缩）。
 
 - 每个工具独立 Zod 校验，自动生成 `session_id`
 - `encodeFileBase64()` 读取本地文件 → Base64 data URL
@@ -122,7 +128,7 @@
 
 #### `pipeline.ts` — 管道编排器（任务调度核心）
 
-提供 4 个独立任务方法：
+提供 6 个独立任务方法：
 
 ```
 visual_describe:
@@ -298,7 +304,7 @@ Round 3: visual_locate（"表格右上角的分页器"）
 
 | 决策          | 选择                                                      | 理由                                           |
 | ------------- | --------------------------------------------------------- | ---------------------------------------------- |
-| 任务调度      | 4 个独立工具 + 管道方法分发                               | 每个工具专注一件事，系统提示词独立优化         |
+| 任务调度      | 6 个独立工具 + 管道方法分发                               | 每个工具专注一件事，系统提示词独立优化         |
 | 两阶段推理    | describe（自然语言）→ locate（JSON）                      | 先理解再定位，避免同时做两件事导致的精度下降   |
 | 上下文注入    | locate 时注入历史 describe 结果                           | 模型已有完整场景认知，定位准确度显著提升       |
 | 直传 data URL | handler 一次编码，pipeline 直接消费                       | 消除适配器中间层，无重复校验                   |
@@ -306,7 +312,8 @@ Round 3: visual_locate（"表格右上角的分页器"）
 | 会话持久化    | node:sqlite (Node.js 内置)                                | 零依赖、同步 API、WAL 事务安全                 |
 | 分级模型配置  | 每工具独立三元组 (baseUrl/apiKey/model)，逐字段回退默认值 | 用户自由搭配不同厂商模型，按任务类型选最合适的 |
 | 降级兜底      | 每步独立 try/catch                                        | 任何单点故障不影响服务可用性                   |
-| 文件路径支持  | 直接传本地路径，内部编码 Base64                           | 用户无需手动编码，使用体验等同于 dashscope     |
+| 输入灵活性    | 本地路径或 HTTP(S) URL                                    | resolveImageSource 统一解析，fetch 自动获取    |
+| 稳定性工程    | 断路器 + 并发控制 + 图片预处理                            | 生产级 API 调用保护，Token 消耗降低 70%+       |
 
 ---
 
@@ -317,7 +324,7 @@ npm run dev          # 热重载开发
 npm run build        # 编译到 dist/
 npm run lint         # ESLint 检查
 npm run typecheck    # TypeScript 类型检查
-npm test             # 运行 114 个测试
+npm test             # 运行 174 个测试（13 文件）
 npm start            # 启动 MCP 服务（stdio）
 ```
 
