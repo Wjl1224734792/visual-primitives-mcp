@@ -31,8 +31,7 @@ export interface StreamableHttpTransportResult {
 
 /** 所有支持的传输创建结果的联合类型 */
 export type TransportResult =
-  | StdioTransportResult
-  | StreamableHttpTransportResult;
+  StdioTransportResult | StreamableHttpTransportResult;
 
 /**
  * 根据传输模式创建对应的 MCP 传输实例
