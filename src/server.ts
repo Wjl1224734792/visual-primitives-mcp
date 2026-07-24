@@ -24,6 +24,7 @@ import { VisionClient } from './core/vision-client.js';
 import { PipelineOrchestrator } from './core/pipeline.js';
 import { registerTool } from './handlers/tool-handlers.js';
 import { createTransport } from './transport/factory.js';
+import { metricsRegistry } from './utils/metrics.js';
 
 async function main(): Promise<void> {
   logger.info(
@@ -90,6 +91,15 @@ async function main(): Promise<void> {
         version: '1.0.0',
         transport: config.mcpTransport,
       })
+    );
+
+    // 指标端点（Phase 3）：返回所有工具的调用次数、错误率、延迟等
+    app.get('/metrics', c =>
+      c.json(
+        config.metricsEnabled
+          ? metricsRegistry.getSnapshot()
+          : { error: 'METRICS_ENABLED=false' }
+      )
     );
 
     // MCP 协议端点：使用 WebStandardStreamableHTTPServerTransport

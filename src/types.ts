@@ -10,6 +10,13 @@ export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 /** 视觉任务类型 */
 export type VisualTask = 'describe' | 'locate' | 'ocr' | 'video_analyze';
 
+/** describe 任务分析模式 */
+export type DescribeTask =
+  'general' | 'diagram' | 'dataviz' | 'ui_code' | 'ui_prompt';
+
+/** compare 关注的差异类型 */
+export type CompareFocus = 'all' | 'layout' | 'color' | 'text' | 'element';
+
 /** 视觉模型返回的单个物体 */
 export interface VisualObject {
   id: number;
@@ -109,6 +116,20 @@ export interface AppConfig {
   dbPath: string;
   /** HTTP 服务端口 */
   port: number;
+  // Phase 1 新增
+  /** 图片预处理开关 */
+  preprocessEnabled: boolean;
+  /** 断路器开关 */
+  circuitBreakerEnabled: boolean;
+  /** 连续失败 N 次后熔断 */
+  circuitBreakerThreshold: number;
+  /** 熔断恢复时间（毫秒） */
+  circuitBreakerRecoveryMs: number;
+  /** 最大并发 API 调用数 */
+  maxConcurrency: number;
+  // Phase 3 新增
+  /** 指标收集开关 */
+  metricsEnabled: boolean;
 }
 
 // ---- 管道输入/输出 ----
@@ -119,6 +140,8 @@ export interface DescribeInput {
   imageBase64: string;
   mediaType: string;
   prompt?: string;
+  /** 分析模式（Phase 2 新增），默认 general */
+  task?: DescribeTask;
   /** 设为 true 跳过视觉 API，直接从缓存推理（用于多轮追问节省成本） */
   fromCache?: boolean;
 }
@@ -186,4 +209,53 @@ export interface VideoAnalyzeOutput {
   sessionId: string;
   description: string;
   round: number;
+}
+
+// ---- compare 管道输入/输出 ----
+
+/** compare 管道输入 */
+export interface CompareInput {
+  imageBase64_1: string;
+  imageBase64_2: string;
+  mediaType: string;
+  focus?: CompareFocus;
+}
+
+/** compare 差异条目 */
+export interface Difference {
+  id: number;
+  severity: 'critical' | 'minor' | 'cosmetic';
+  type: 'layout' | 'color' | 'text' | 'element' | 'other';
+  description: string;
+  location_hint?: string;
+  bbox_approx?: [number, number, number, number];
+}
+
+/** compare 管道输出 */
+export interface CompareOutput {
+  summary: string;
+  differences: Difference[];
+}
+
+// ---- diagnose 管道输入/输出 ----
+
+/** diagnose 管道输入 */
+export interface DiagnoseInput {
+  imageBase64: string;
+  mediaType: string;
+  context?: string;
+}
+
+/** diagnose 错误类型 */
+export type DiagnoseErrorType =
+  'runtime' | 'build' | 'network' | 'database' | 'unknown';
+
+/** diagnose 管道输出 */
+export interface DiagnoseOutput {
+  diagnosis: string;
+  root_cause: string;
+  suggested_fix: string;
+  severity: 'error' | 'warning' | 'info';
+  error_type: DiagnoseErrorType;
+  related_hints: string[];
 }

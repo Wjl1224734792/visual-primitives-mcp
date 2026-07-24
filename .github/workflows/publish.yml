@@ -6,11 +6,47 @@ on:
       - 'v*'
 
 jobs:
+  quality:
+    name: Quality Gate
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Verify version matches tag
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "ERROR: package.json version ($PKG_VERSION) != tag version ($TAG_VERSION)"
+            exit 1
+          fi
+          echo "Version OK: $PKG_VERSION"
+      - name: Verify CHANGELOG exists
+        run: |
+          if [ ! -f CHANGELOG.md ]; then
+            echo "ERROR: CHANGELOG.md not found"
+            exit 1
+          fi
+          echo "CHANGELOG OK"
+
   publish:
     name: Publish
+    needs: quality
     runs-on: ubuntu-22.04
     permissions:
       contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -22,14 +58,25 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npm run build
-      - run: npm publish
+      - name: Publish to npm
+        run: npm publish --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Extract CHANGELOG for this version
+        id: changelog
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          # Extract the section for this version from CHANGELOG.md
+          awk "/^## ${PKG_VERSION}$/,/^## /" CHANGELOG.md | tail -n +2 | head -n -1 > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "CHANGELOG section for v${PKG_VERSION} appears empty, using git diff notes"
+            echo "See CHANGELOG.md for full details." > release-notes.md
+          fi
       - name: Create GitHub Release
         run: |
           gh release create "${{ github.ref_name }}" \
-            --title "${{ github.ref_name }}" \
-            --generate-notes \
+            --title "v$(node -p "require('./package.json').version")" \
+            --notes-file release-notes.md \
             --draft=false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

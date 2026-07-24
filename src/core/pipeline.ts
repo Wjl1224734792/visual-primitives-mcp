@@ -7,6 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { randomBytes } from 'node:crypto';
 
 import type {
   DescribeInput,
@@ -15,6 +16,10 @@ import type {
   LocateInput,
   LocateOutput,
   OcrInput,
+  CompareInput,
+  CompareOutput,
+  DiagnoseInput,
+  DiagnoseOutput,
   VideoAnalyzeInput,
   VideoAnalyzeOutput,
   VisualAnalysisResult,
@@ -35,6 +40,7 @@ import {
   formatSpatialGraph,
 } from './prompt-builder.js';
 import { logger } from '../utils/logger.js';
+import { metricsRegistry } from '../utils/metrics.js';
 
 // ---- 系统提示词缓存 ----
 
@@ -66,6 +72,40 @@ const ocrSystemPrompt = loadTemplate(
   'ocr-system.txt',
   '你是一个专业的 OCR 文字识别助手。请提取图片中的所有文字。'
 );
+
+// Phase 2 新增模板
+const diagramSystemPrompt = loadTemplate(
+  'describe-diagram.txt',
+  '你是一个资深架构分析师，擅长解读技术图表。'
+);
+const datavizSystemPrompt = loadTemplate(
+  'describe-dataviz.txt',
+  '你是一个数据可视化分析专家，擅长解读各类数据图表。'
+);
+const uiCodeSystemPrompt = loadTemplate(
+  'describe-ui-code.txt',
+  '你是一个资深前端开发工程师，擅长将 UI 截图转化为 React 代码。'
+);
+const uiPromptSystemPrompt = loadTemplate(
+  'describe-ui-prompt.txt',
+  '你是一个 UI 设计转译专家，擅长将 UI 截图转化为 LLM 提示词。'
+);
+const compareSystemPrompt = loadTemplate(
+  'compare-system.txt',
+  '你是一个资深 UI 测试工程师，专精于像素级视觉回归测试。'
+);
+const diagnoseSystemPrompt = loadTemplate(
+  'diagnose-system.txt',
+  '你是一个全栈调试专家，拥有丰富的前端/后端/数据库排查经验。'
+);
+
+const TASK_PROMPT_MAP: Record<string, string> = {
+  general: describeSystemPrompt,
+  diagram: diagramSystemPrompt,
+  dataviz: datavizSystemPrompt,
+  ui_code: uiCodeSystemPrompt,
+  ui_prompt: uiPromptSystemPrompt,
+};
 
 // ---- 辅助函数 ----
 
@@ -154,14 +194,27 @@ export class PipelineOrchestrator {
 
   /** 场景描述：JSON 模式输出自然语言 + 结构化物体坐标 + 空间关系图谱 */
   async describe(input: DescribeInput): Promise<DescribeOutput> {
-    const { sessionId, imageBase64, mediaType, prompt, fromCache } = input;
+    const { sessionId, imageBase64, mediaType, prompt, fromCache, task } =
+      input;
+    const traceId = randomBytes(4).toString('hex');
+    const effectiveTask = task ?? 'general';
 
-    logger.info({ sessionId, mediaType, fromCache }, 'Pipeline.describe: 开始');
+    metricsRegistry.recordCall('describe');
+    const startTime = performance.now();
+
+    logger.info(
+      { sessionId, traceId, mediaType, fromCache, task: effectiveTask },
+      'Pipeline.describe: 开始'
+    );
 
     getOrCreateSession(this.sessionManager, sessionId, mediaType, imageBase64);
     const sessionCtx = this.sessionManager.getSession(sessionId);
     const recentHistory = sessionCtx?.recentHistory ?? [];
     const round = nextRound(this.sessionManager, sessionId);
+
+    // task 参数路由：选择对应的系统提示词
+    const selectedPrompt =
+      TASK_PROMPT_MAP[effectiveTask] ?? describeSystemPrompt;
 
     try {
       const basePrompt = prompt ?? '请描述画面内容并识别所有关键物体。';
@@ -173,6 +226,7 @@ export class PipelineOrchestrator {
 
       if (fromCache && sessionCtx && sessionCtx.objects.length > 0) {
         // 缓存模式：跳过视觉 API，直接从已有物体构建图谱推理
+        metricsRegistry.recordCacheHit('describe');
         objects = sessionCtx.objects.map(obj => ({
           id: obj.object_id,
           label: obj.label,
@@ -206,7 +260,7 @@ export class PipelineOrchestrator {
         const raw = await this.visionClient.analyze(
           config.describe,
           dataUrls,
-          describeSystemPrompt,
+          selectedPrompt,
           userPrompt
         );
 
@@ -268,6 +322,7 @@ export class PipelineOrchestrator {
       logger.info(
         {
           sessionId,
+          traceId,
           round,
           fromCache,
           objectsCount: objects.length,
@@ -275,6 +330,8 @@ export class PipelineOrchestrator {
         },
         'Pipeline.describe: 完成'
       );
+      const elapsed = performance.now() - startTime;
+      metricsRegistry.recordLatency('describe', elapsed);
       return {
         sessionId,
         description,
@@ -284,7 +341,13 @@ export class PipelineOrchestrator {
       };
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      logger.error({ error: errMsg, sessionId }, 'Pipeline.describe: 失败');
+      metricsRegistry.recordError('describe');
+      const elapsed = performance.now() - startTime;
+      metricsRegistry.recordLatency('describe', elapsed);
+      logger.error(
+        { error: errMsg, sessionId, traceId },
+        'Pipeline.describe: 失败'
+      );
       return { sessionId, description: `[降级] ${errMsg}`, round };
     }
   }
@@ -293,9 +356,13 @@ export class PipelineOrchestrator {
   async locate(input: LocateInput): Promise<LocateOutput> {
     const { sessionId, imageBase64, mediaType, question, coordinatePrecision } =
       input;
+    const traceId = randomBytes(4).toString('hex');
+
+    metricsRegistry.recordCall('locate');
+    const startTime = performance.now();
 
     logger.info(
-      { sessionId, mediaType, question: question.substring(0, 80) },
+      { sessionId, traceId, mediaType, question: question.substring(0, 80) },
       'Pipeline.locate: 开始'
     );
 
@@ -362,8 +429,9 @@ export class PipelineOrchestrator {
         };
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
+        metricsRegistry.recordError('locate');
         logger.warn(
-          { error: errMsg, sessionId },
+          { error: errMsg, sessionId, traceId },
           'Pipeline.locate: 视觉分析失败，回退缓存'
         );
       }
@@ -387,6 +455,12 @@ export class PipelineOrchestrator {
       augmentedPrompt.substring(0, 500)
     );
 
+    if (fromCache) {
+      metricsRegistry.recordCacheHit('locate');
+    }
+    const elapsed = performance.now() - startTime;
+    metricsRegistry.recordLatency('locate', elapsed);
+
     return {
       sessionId,
       visualAnalysis,
@@ -400,8 +474,12 @@ export class PipelineOrchestrator {
   /** OCR 文字提取 */
   async ocr(input: OcrInput): Promise<string> {
     const { imageBase64, mediaType, prompt } = input;
+    const traceId = randomBytes(4).toString('hex');
 
-    logger.info({ mediaType }, 'Pipeline.ocr: 开始');
+    metricsRegistry.recordCall('ocr');
+    const startTime = performance.now();
+
+    logger.info({ traceId, mediaType }, 'Pipeline.ocr: 开始');
 
     try {
       const dataUrls = [imageBase64];
@@ -415,10 +493,16 @@ export class PipelineOrchestrator {
         userPrompt
       );
 
+      const elapsed = performance.now() - startTime;
+      metricsRegistry.recordLatency('ocr', elapsed);
+
       return content;
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      logger.error({ error: errMsg }, 'Pipeline.ocr: 失败');
+      metricsRegistry.recordError('ocr');
+      const elapsed = performance.now() - startTime;
+      metricsRegistry.recordLatency('ocr', elapsed);
+      logger.error({ error: errMsg, traceId }, 'Pipeline.ocr: 失败');
       return `[降级] ${errMsg}`;
     }
   }
@@ -426,8 +510,15 @@ export class PipelineOrchestrator {
   /** 视频分析：直接发送视频，模型原生理解，注入历史上下文支持多轮追问 */
   async videoAnalyze(input: VideoAnalyzeInput): Promise<VideoAnalyzeOutput> {
     const { sessionId, videoBase64, mediaType, prompt } = input;
+    const traceId = randomBytes(4).toString('hex');
 
-    logger.info({ sessionId, mediaType }, 'Pipeline.videoAnalyze: 开始');
+    metricsRegistry.recordCall('video_analyze');
+    const startTime = performance.now();
+
+    logger.info(
+      { sessionId, traceId, mediaType },
+      'Pipeline.videoAnalyze: 开始'
+    );
 
     getOrCreateSession(this.sessionManager, sessionId, mediaType, videoBase64);
     const sessionCtx = this.sessionManager.getSession(sessionId);
@@ -464,12 +555,177 @@ export class PipelineOrchestrator {
         content.substring(0, 500)
       );
 
-      logger.info({ sessionId, round }, 'Pipeline.videoAnalyze: 完成');
+      logger.info({ sessionId, traceId, round }, 'Pipeline.videoAnalyze: 完成');
+      const elapsed = performance.now() - startTime;
+      metricsRegistry.recordLatency('video_analyze', elapsed);
       return { sessionId, description: content, round };
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      logger.error({ error: errMsg, sessionId }, 'Pipeline.videoAnalyze: 失败');
+      metricsRegistry.recordError('video_analyze');
+      const elapsed = performance.now() - startTime;
+      metricsRegistry.recordLatency('video_analyze', elapsed);
+      logger.error(
+        { error: errMsg, sessionId, traceId },
+        'Pipeline.videoAnalyze: 失败'
+      );
       return { sessionId, description: `[降级] ${errMsg}`, round };
     }
+  }
+
+  // ---- Phase 2 新增工具方法 ----
+
+  /** 截图差异对比：两张图逐区域对比，按严重程度分类输出 */
+  async compare(input: CompareInput): Promise<CompareOutput> {
+    const { imageBase64_1, imageBase64_2, mediaType, focus } = input;
+    const traceId = randomBytes(4).toString('hex');
+
+    metricsRegistry.recordCall('compare');
+    const startTime = performance.now();
+
+    logger.info({ traceId, mediaType, focus }, 'Pipeline.compare: 开始');
+
+    try {
+      const basePrompt =
+        focus && focus !== 'all'
+          ? `请重点对比两张截图的「${focus}」方面的差异。`
+          : '请逐区域对比两张截图，找出所有视觉差异。';
+      const userPrompt = focus ? `${basePrompt}\n关注点: ${focus}` : basePrompt;
+
+      const raw = await this.visionClient.chat(
+        config.vision,
+        [imageBase64_1, imageBase64_2],
+        compareSystemPrompt,
+        userPrompt
+      );
+
+      const result: CompareOutput = parseCompareResponse(raw);
+      const elapsed = performance.now() - startTime;
+      metricsRegistry.recordLatency('compare', elapsed);
+      logger.info(
+        { traceId, differencesCount: result.differences.length },
+        'Pipeline.compare: 完成'
+      );
+      return result;
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      metricsRegistry.recordError('compare');
+      const elapsed = performance.now() - startTime;
+      metricsRegistry.recordLatency('compare', elapsed);
+      logger.error({ error: errMsg, traceId }, 'Pipeline.compare: 失败');
+      return { summary: `[降级] ${errMsg}`, differences: [] };
+    }
+  }
+
+  /** 错误截图诊断：分析错误 → 根因 → 修复建议 → 相关文件猜测 */
+  async diagnose(input: DiagnoseInput): Promise<DiagnoseOutput> {
+    const { imageBase64, mediaType, context } = input;
+    const traceId = randomBytes(4).toString('hex');
+
+    metricsRegistry.recordCall('diagnose');
+    const startTime = performance.now();
+
+    logger.info({ traceId, mediaType }, 'Pipeline.diagnose: 开始');
+
+    try {
+      const userPrompt = context
+        ? `额外上下文: ${context}\n\n请分析该错误截图。`
+        : '请分析该错误截图。';
+
+      const raw = await this.visionClient.chat(
+        config.vision,
+        [imageBase64],
+        diagnoseSystemPrompt,
+        userPrompt
+      );
+
+      const result = parseDiagnoseResponse(raw);
+      const elapsed = performance.now() - startTime;
+      metricsRegistry.recordLatency('diagnose', elapsed);
+      logger.info(
+        { traceId, severity: result.severity },
+        'Pipeline.diagnose: 完成'
+      );
+      return result;
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      metricsRegistry.recordError('diagnose');
+      const elapsed = performance.now() - startTime;
+      metricsRegistry.recordLatency('diagnose', elapsed);
+      logger.error({ error: errMsg, traceId }, 'Pipeline.diagnose: 失败');
+      return {
+        diagnosis: `[降级] ${errMsg}`,
+        root_cause: '未知',
+        suggested_fix: '请稍后重试',
+        severity: 'error',
+        error_type: 'unknown',
+        related_hints: [],
+      };
+    }
+  }
+}
+
+// ---- 解析辅助函数 ----
+
+/**
+ * 解析 compare 响应为 CompareOutput，失败时返回降级结果
+ */
+function parseCompareResponse(raw: string): CompareOutput {
+  try {
+    const parsed = JSON.parse(raw) as CompareOutput;
+    if (!parsed.summary || !Array.isArray(parsed.differences)) {
+      throw new Error('compare 响应格式不正确');
+    }
+    return parsed;
+  } catch {
+    // 尝试从文本中提取 JSON
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[0]) as CompareOutput;
+        if (parsed.summary && Array.isArray(parsed.differences)) {
+          return parsed;
+        }
+      } catch {
+        // 降级
+      }
+    }
+    return {
+      summary: '（无法解析对比结果）',
+      differences: [],
+    };
+  }
+}
+
+/**
+ * 解析 diagnose 响应为 DiagnoseOutput，失败时返回降级结果
+ */
+function parseDiagnoseResponse(raw: string): DiagnoseOutput {
+  try {
+    const parsed = JSON.parse(raw) as DiagnoseOutput;
+    if (!parsed.diagnosis || !parsed.root_cause) {
+      throw new Error('diagnose 响应格式不正确');
+    }
+    return parsed;
+  } catch {
+    // 尝试从文本中提取 JSON
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[0]) as DiagnoseOutput;
+        if (parsed.diagnosis && parsed.root_cause) {
+          return parsed;
+        }
+      } catch {
+        // 降级
+      }
+    }
+    return {
+      diagnosis: `（原始响应）${raw.substring(0, 500)}`,
+      root_cause: '无法解析结构化诊断',
+      suggested_fix: '请检查原始响应内容',
+      severity: 'error',
+      error_type: 'unknown',
+      related_hints: [],
+    };
   }
 }

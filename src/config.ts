@@ -78,6 +78,49 @@ const envSchema = z.object({
     .default('3000')
     .transform(v => parseInt(v, 10))
     .pipe(z.number().int().min(1024).max(65535)),
+
+  // ---- Phase 1 新增 ----
+
+  /** 图片预处理开关，默认 true */
+  PREPROCESS_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform(v => v === 'true'),
+
+  /** 断路器开关，默认 true */
+  CIRCUIT_BREAKER_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform(v => v === 'true'),
+
+  /** 连续失败 N 次后熔断，默认 5 */
+  CIRCUIT_BREAKER_THRESHOLD: z
+    .string()
+    .default('5')
+    .transform(v => parseInt(v, 10))
+    .pipe(z.number().int().positive()),
+
+  /** 熔断恢复时间（毫秒），默认 30000 */
+  CIRCUIT_BREAKER_RECOVERY_MS: z
+    .string()
+    .default('30000')
+    .transform(v => parseInt(v, 10))
+    .pipe(z.number().int().positive()),
+
+  /** 最大并发 API 调用数，默认 10 */
+  MAX_CONCURRENCY: z
+    .string()
+    .default('10')
+    .transform(v => parseInt(v, 10))
+    .pipe(z.number().int().positive()),
+
+  // ---- Phase 3 新增 ----
+
+  /** 指标收集开关，默认 true */
+  METRICS_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform(v => v === 'true'),
 });
 
 // ---- 辅助 ----
@@ -158,6 +201,14 @@ export function loadConfig(): AppConfig {
     sessionTtlSeconds: parsed.SESSION_TTL_SECONDS,
     dbPath: parsed.DB_PATH,
     port: parsed.PORT,
+    // Phase 1 新增
+    preprocessEnabled: parsed.PREPROCESS_ENABLED,
+    circuitBreakerEnabled: parsed.CIRCUIT_BREAKER_ENABLED,
+    circuitBreakerThreshold: parsed.CIRCUIT_BREAKER_THRESHOLD,
+    circuitBreakerRecoveryMs: parsed.CIRCUIT_BREAKER_RECOVERY_MS,
+    maxConcurrency: parsed.MAX_CONCURRENCY,
+    // Phase 3 新增
+    metricsEnabled: parsed.METRICS_ENABLED,
   };
 }
 

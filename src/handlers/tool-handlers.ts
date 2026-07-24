@@ -7,6 +7,10 @@
  *   - visual_ocr：文字/表格提取
  *   - visual_video_analyze：视频内容分析
  *
+ * Phase 1 增强：
+ *   - URL 输入支持（resolveImageSource）
+ *   - 图片智能预处理（preprocessImage）
+ *
  * 映射需求：REQ-001（工具注册）
  * 任务 ID：TASK-008
  */
@@ -16,6 +20,13 @@ import { randomUUID } from 'node:crypto';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { PipelineOrchestrator } from '../core/pipeline.js';
 import { logger } from '../utils/logger.js';
+import { metricsRegistry } from '../utils/metrics.js';
+import { config } from '../config.js';
+import {
+  preprocessImage,
+  getToolPreset,
+  isRemoteUrl,
+} from '../core/image-preprocessor.js';
 
 // ---- 文件读取辅助函数 ----
 
@@ -36,6 +47,8 @@ const VIDEO_EXTENSIONS: ReadonlySet<string> = new Set([
   'webm',
 ]);
 
+const MAX_REDIRECTS = 3;
+
 /** 根据文件扩展名推断 MIME 类型 */
 function getMimeType(filePath: string): string | null {
   const ext = filePath.split('.').pop()?.toLowerCase();
@@ -53,6 +66,89 @@ function getMimeType(filePath: string): string | null {
     webm: 'video/webm',
   };
   return mimeMap[ext ?? ''] ?? null;
+}
+
+/** 从 HTTP(S) URL 获取媒体文件并编码为 Base64 data URL */
+async function fetchUrlBase64(
+  url: string,
+  mediaType: 'image' | 'video'
+): Promise<{
+  dataUrl: string;
+  mediaType: 'image' | 'video';
+}> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30_000);
+
+  try {
+    let currentUrl = url;
+    let remainingRedirects = MAX_REDIRECTS;
+
+    while (remainingRedirects >= 0) {
+      const response = await fetch(currentUrl, {
+        method: 'GET',
+        headers: { 'User-Agent': 'visual-primitives-mcp/1.0' },
+        signal: controller.signal,
+        redirect: 'manual',
+      });
+
+      // 处理重定向
+      if (
+        response.status >= 300 &&
+        response.status < 400 &&
+        response.headers.get('location')
+      ) {
+        if (remainingRedirects === 0) {
+          throw new Error(`URL 重定向超过 ${String(MAX_REDIRECTS)} 次限制`);
+        }
+        remainingRedirects--;
+        const location = response.headers.get('location');
+        const baseUrlObj = new URL(currentUrl);
+        currentUrl = new URL(location ?? '', baseUrlObj.origin).href;
+        continue;
+      }
+
+      if (!response.ok) {
+        throw new Error(`URL 不可达: HTTP ${String(response.status)}`);
+      }
+
+      const contentType = response.headers.get('content-type') ?? '';
+      const allowedPrefix =
+        mediaType === 'image'
+          ? 'image/'
+          : mediaType === 'video'
+            ? 'video/'
+            : '';
+      if (!contentType.startsWith(allowedPrefix)) {
+        throw new Error(
+          `URL 返回的格式不支持: ${contentType}（需要 ${allowedPrefix}*）`
+        );
+      }
+
+      const maxSize =
+        mediaType === 'image' ? 20 * 1024 * 1024 : 100 * 1024 * 1024;
+      const contentLength = response.headers.get('content-length');
+      if (contentLength && parseInt(contentLength, 10) > maxSize) {
+        throw new Error(
+          `URL 返回的文件过大: ${contentLength} bytes (上限 ${String(maxSize)})`
+        );
+      }
+
+      const buffer = Buffer.from(await response.arrayBuffer());
+      if (buffer.length > maxSize) {
+        throw new Error(
+          `URL 返回的文件过大: ${String(buffer.length)} bytes (上限 ${String(maxSize)})`
+        );
+      }
+
+      const b64 = buffer.toString('base64');
+      const dataUrl = `data:${contentType.split(';')[0] ?? contentType};base64,${b64}`;
+      return { dataUrl, mediaType };
+    }
+
+    throw new Error('URL 获取失败：重定向循环');
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 /** 将本地文件读取并编码为 Base64 data URL */
@@ -102,6 +198,66 @@ async function encodeFileBase64(filePath: string): Promise<{
   return { dataUrl: `data:${mime};base64,${b64}`, mediaType };
 }
 
+/**
+ * 解析图片来源：URL 远程获取 or 本地文件读取
+ *
+ * URL 判定：以 http:// 或 https:// 开头 → fetch
+ * 本地路径：原有流程
+ */
+async function resolveImageSource(
+  imagePath: string,
+  expectedType?: 'image' | 'video'
+): Promise<{
+  dataUrl: string;
+  mediaType: 'image' | 'video';
+}> {
+  if (isRemoteUrl(imagePath)) {
+    // 从 URL 推断期望类型
+    const ext = imagePath.split('?')[0]?.split('.').pop()?.toLowerCase() ?? '';
+    const guessedType: 'image' | 'video' =
+      expectedType ?? (VIDEO_EXTENSIONS.has(ext) ? 'video' : 'image');
+    return fetchUrlBase64(imagePath, guessedType);
+  }
+  return encodeFileBase64(imagePath);
+}
+
+// ---- 图片预处理包装 ----
+
+/**
+ * 对图片 dataUrl 进行智能预处理（resize + 压缩）
+ *
+ * 仅当 config.preprocessEnabled 为 true 且媒体类型为图片时生效。
+ * 处理失败时降级返回原图。
+ */
+async function preprocessIfEnabled(
+  dataUrl: string,
+  mediaType: 'image' | 'video',
+  toolName: string
+): Promise<string> {
+  if (mediaType === 'video') return dataUrl;
+  if (!config.preprocessEnabled) return dataUrl;
+
+  try {
+    const preset = getToolPreset(toolName as 'describe' | 'locate' | 'ocr');
+    return await preprocessImage(
+      dataUrl,
+      getMimeTypeForDataUrl(dataUrl) ?? 'image/png',
+      preset
+    );
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    logger.warn({ error: errMsg, toolName }, '预处理失败，降级使用原图');
+    metricsRegistry.recordPreprocessSkipped(toolName);
+    return dataUrl;
+  }
+}
+
+/** 从 data URL 中提取 MIME 类型 */
+function getMimeTypeForDataUrl(dataUrl: string): string | null {
+  const match = dataUrl.match(/^data:([^;]+);base64,/);
+  return match?.[1] ?? null;
+}
+
 // ---- 工具注册 ----
 
 /**
@@ -137,19 +293,31 @@ export function registerTool(
           .describe(
             '★ 追问同一图片时必须传入上次返回的 session_id，复用上下文避免重复上传分析'
           ),
+        task: z
+          .enum(['general', 'diagram', 'dataviz', 'ui_code', 'ui_prompt'])
+          .default('general')
+          .describe(
+            '分析模式：general=场景描述, diagram=技术图表, dataviz=数据可视化, ui_code=生成代码, ui_prompt=生成提示词'
+          ),
       },
     },
     async params => {
       const sessionId: string = params.session_id ?? randomUUID();
+      const startTime = performance.now();
+      metricsRegistry.recordCall('describe');
 
       try {
         let dataUrl: string;
         let mediaType: 'image' | 'video';
 
         if (params.image_path) {
-          const encoded = await encodeFileBase64(params.image_path);
-          dataUrl = encoded.dataUrl;
-          mediaType = encoded.mediaType;
+          const resolved = await resolveImageSource(params.image_path);
+          dataUrl = await preprocessIfEnabled(
+            resolved.dataUrl,
+            resolved.mediaType,
+            'describe'
+          );
+          mediaType = resolved.mediaType;
         } else if (params.session_id) {
           // 无新图片：fromCache 模式，跳过视觉 API 直接从缓存推理
           const result = await pipeline.describe({
@@ -159,6 +327,8 @@ export function registerTool(
             prompt: params.prompt,
             fromCache: true,
           });
+          const elapsed = performance.now() - startTime;
+          metricsRegistry.recordLatency('describe', elapsed);
           return {
             content: [
               {
@@ -182,8 +352,11 @@ export function registerTool(
           imageBase64: dataUrl,
           mediaType,
           prompt: params.prompt,
+          task: params.task,
         });
 
+        const elapsed = performance.now() - startTime;
+        metricsRegistry.recordLatency('describe', elapsed);
         return {
           content: [
             {
@@ -200,6 +373,9 @@ export function registerTool(
         };
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
+        metricsRegistry.recordError('describe');
+        const elapsed = performance.now() - startTime;
+        metricsRegistry.recordLatency('describe', elapsed);
         return {
           content: [{ type: 'text' as const, text: `❌ 错误: ${errMsg}` }],
           isError: true,
@@ -226,7 +402,7 @@ export function registerTool(
           .string()
           .optional()
           .describe(
-            '本地图片路径。如果传了 session_id 且该会话已有缓存物体，可省略此参数节省调用'
+            '本地图片路径或 HTTP(S) URL。如果传了 session_id 且该会话已有缓存物体，可省略此参数节省调用'
           ),
         session_id: z
           .string()
@@ -242,15 +418,21 @@ export function registerTool(
     },
     async params => {
       const sessionId: string = params.session_id ?? randomUUID();
+      const startTime = performance.now();
+      metricsRegistry.recordCall('locate');
 
       try {
         let dataUrl: string | undefined;
         let mediaType: 'image' | 'video' | undefined;
 
         if (params.image_path) {
-          const encoded = await encodeFileBase64(params.image_path);
-          dataUrl = encoded.dataUrl;
-          mediaType = encoded.mediaType;
+          const resolved = await resolveImageSource(params.image_path);
+          dataUrl = await preprocessIfEnabled(
+            resolved.dataUrl,
+            resolved.mediaType,
+            'locate'
+          );
+          mediaType = resolved.mediaType;
         }
 
         const result = await pipeline.locate({
@@ -261,6 +443,8 @@ export function registerTool(
           coordinatePrecision: params.coordinate_precision,
         });
 
+        const elapsed = performance.now() - startTime;
+        metricsRegistry.recordLatency('locate', elapsed);
         return {
           content: [
             {
@@ -278,6 +462,9 @@ export function registerTool(
         };
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
+        metricsRegistry.recordError('locate');
+        const elapsed = performance.now() - startTime;
+        metricsRegistry.recordLatency('locate', elapsed);
         return {
           content: [{ type: 'text' as const, text: `❌ 错误: ${errMsg}` }],
           isError: true,
@@ -292,11 +479,13 @@ export function registerTool(
     {
       title: '视觉 OCR 文字识别',
       description:
-        '从图片中提取文字和表格内容。擅长：文档扫描件识别、UI 文字提取、表格结构化提取、手写体识别。传入本地图片文件路径，返回识别出的文字内容。',
+        '从图片中提取文字和表格内容。擅长：文档扫描件识别、UI 文字提取、表格结构化提取、手写体识别。传入本地图片文件路径或 HTTP(S) URL，返回识别出的文字内容。',
       inputSchema: {
         image_path: z
           .string()
-          .describe('本地图片文件的绝对路径，支持 png/jpg/webp/gif/bmp'),
+          .describe(
+            '本地图片文件的绝对路径或 HTTP(S) URL，支持 png/jpg/webp/gif/bmp'
+          ),
         prompt: z
           .string()
           .optional()
@@ -306,22 +495,33 @@ export function registerTool(
       },
     },
     async params => {
+      const startTime = performance.now();
+      metricsRegistry.recordCall('ocr');
+
       try {
-        const { dataUrl, mediaType } = await encodeFileBase64(
-          params.image_path
+        const resolved = await resolveImageSource(params.image_path);
+        const dataUrl = await preprocessIfEnabled(
+          resolved.dataUrl,
+          resolved.mediaType,
+          'ocr'
         );
 
         const text = await pipeline.ocr({
           imageBase64: dataUrl,
-          mediaType,
+          mediaType: resolved.mediaType,
           prompt: params.prompt,
         });
 
+        const elapsed = performance.now() - startTime;
+        metricsRegistry.recordLatency('ocr', elapsed);
         return {
           content: [{ type: 'text' as const, text }],
         };
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
+        metricsRegistry.recordError('ocr');
+        const elapsed = performance.now() - startTime;
+        metricsRegistry.recordLatency('ocr', elapsed);
         return {
           content: [{ type: 'text' as const, text: `❌ 错误: ${errMsg}` }],
           isError: true,
@@ -341,7 +541,9 @@ export function registerTool(
       inputSchema: {
         video_path: z
           .string()
-          .describe('本地视频文件的绝对路径，支持 mp4/avi/mov/mkv/webm'),
+          .describe(
+            '本地视频文件的绝对路径或 HTTP(S) URL，支持 mp4/avi/mov/mkv/webm'
+          ),
         prompt: z
           .string()
           .optional()
@@ -358,19 +560,23 @@ export function registerTool(
     },
     async params => {
       const sessionId: string = params.session_id ?? randomUUID();
+      const startTime = performance.now();
+      metricsRegistry.recordCall('video_analyze');
 
       try {
-        const { dataUrl, mediaType } = await encodeFileBase64(
-          params.video_path
-        );
+        const resolved = await resolveImageSource(params.video_path, 'video');
+        // 视频不做预处理
+        const dataUrl = resolved.dataUrl;
 
         const result = await pipeline.videoAnalyze({
           sessionId,
           videoBase64: dataUrl,
-          mediaType,
+          mediaType: resolved.mediaType,
           prompt: params.prompt,
         });
 
+        const elapsed = performance.now() - startTime;
+        metricsRegistry.recordLatency('video_analyze', elapsed);
         return {
           content: [
             {
@@ -385,6 +591,9 @@ export function registerTool(
         };
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
+        metricsRegistry.recordError('video_analyze');
+        const elapsed = performance.now() - startTime;
+        metricsRegistry.recordLatency('video_analyze', elapsed);
         return {
           content: [{ type: 'text' as const, text: `❌ 错误: ${errMsg}` }],
           isError: true,
@@ -393,5 +602,149 @@ export function registerTool(
     }
   );
 
-  logger.info('ToolHandler: 4 个视觉任务工具已注册');
+  // ---- visual_compare ----
+  server.registerTool(
+    'visual_compare',
+    {
+      title: '截图差异对比',
+      description:
+        '精确对比两张 UI 截图的视觉差异，按严重程度分类输出。' +
+        '适用于：UI 回归测试、CSS 变更验证、跨版本界面对比。',
+      inputSchema: {
+        image_path_1: z
+          .string()
+          .describe('修改前截图（本地路径或 HTTP(S) URL）'),
+        image_path_2: z
+          .string()
+          .describe('修改后截图（本地路径或 HTTP(S) URL）'),
+        focus: z
+          .enum(['all', 'layout', 'color', 'text', 'element'])
+          .default('all')
+          .optional()
+          .describe(
+            '关注点：all=全面对比, layout=布局, color=颜色, text=文字, element=元素'
+          ),
+      },
+    },
+    async params => {
+      const startTime = performance.now();
+      metricsRegistry.recordCall('compare');
+
+      try {
+        const [resolved1, resolved2] = await Promise.all([
+          resolveImageSource(params.image_path_1),
+          resolveImageSource(params.image_path_2),
+        ]);
+
+        const [dataUrl1, dataUrl2] = await Promise.all([
+          preprocessIfEnabled(
+            resolved1.dataUrl,
+            resolved1.mediaType,
+            'compare'
+          ),
+          preprocessIfEnabled(
+            resolved2.dataUrl,
+            resolved2.mediaType,
+            'compare'
+          ),
+        ]);
+
+        const result = await pipeline.compare({
+          imageBase64_1: dataUrl1,
+          imageBase64_2: dataUrl2,
+          mediaType: resolved1.mediaType,
+          focus: params.focus,
+        });
+
+        const elapsed = performance.now() - startTime;
+        metricsRegistry.recordLatency('compare', elapsed);
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({
+                summary: result.summary,
+                differences: result.differences,
+              }),
+            },
+          ],
+        };
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        metricsRegistry.recordError('compare');
+        const elapsed = performance.now() - startTime;
+        metricsRegistry.recordLatency('compare', elapsed);
+        return {
+          content: [{ type: 'text' as const, text: `❌ 错误: ${errMsg}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ---- visual_diagnose ----
+  server.registerTool(
+    'visual_diagnose',
+    {
+      title: '错误截图诊断',
+      description:
+        '分析错误截图，给出结构化诊断：发生了什么 → 根因 → 修复建议 → 相关文件猜测。' +
+        '适用于：前端报错截图、后端日志截图、终端错误截图、CI 失败截图。',
+      inputSchema: {
+        image_path: z.string().describe('错误截图（本地路径或 HTTP(S) URL）'),
+        context: z
+          .string()
+          .optional()
+          .describe('额外上下文（如"React 项目"、数据库迁移报错）'),
+      },
+    },
+    async params => {
+      const startTime = performance.now();
+      metricsRegistry.recordCall('diagnose');
+
+      try {
+        const resolved = await resolveImageSource(params.image_path);
+        const dataUrl = await preprocessIfEnabled(
+          resolved.dataUrl,
+          resolved.mediaType,
+          'diagnose'
+        );
+
+        const result = await pipeline.diagnose({
+          imageBase64: dataUrl,
+          mediaType: resolved.mediaType,
+          context: params.context,
+        });
+
+        const elapsed = performance.now() - startTime;
+        metricsRegistry.recordLatency('diagnose', elapsed);
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({
+                diagnosis: result.diagnosis,
+                root_cause: result.root_cause,
+                suggested_fix: result.suggested_fix,
+                severity: result.severity,
+                error_type: result.error_type,
+                related_hints: result.related_hints,
+              }),
+            },
+          ],
+        };
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        metricsRegistry.recordError('diagnose');
+        const elapsed = performance.now() - startTime;
+        metricsRegistry.recordLatency('diagnose', elapsed);
+        return {
+          content: [{ type: 'text' as const, text: `❌ 错误: ${errMsg}` }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  logger.info('ToolHandler: 6 个视觉任务工具已注册');
 }

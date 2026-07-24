@@ -8,9 +8,21 @@
  *
  * 直接接受 data URL，根据 MIME 前缀自动选 image_url / video_url。
  * 指数退避重试（最多 3 次）。
+ *
+ * Phase 1 增强：
+ *   - 可配置超时（替换硬编码 120s）
+ *   - 集成断路器（每模型/工具独立）
+ *   - 集成并发控制（全局信号量）
  */
 import { withRetry } from '../utils/retry.js';
 import { logger } from '../utils/logger.js';
+import {
+  CircuitBreaker,
+  CircuitBreakerOpenError,
+} from '../utils/circuit-breaker.js';
+import { getGlobalLimiter } from '../utils/concurrency-limiter.js';
+import { metricsRegistry } from '../utils/metrics.js';
+import { config } from '../config.js';
 import type { ModelConfig } from '../types.js';
 
 function normalizeBaseUrl(url: string): string {
@@ -44,7 +56,7 @@ function buildMessages(
 
 function extractStatusCode(errorMessage: string): number {
   const match = errorMessage.match(/错误状态 (\d{3})/);
-  if (match && match[1]) return parseInt(match[1], 10);
+  if (match?.[1]) return parseInt(match[1], 10);
   return 0;
 }
 
@@ -68,6 +80,31 @@ const DEGRADED_JSON = JSON.stringify({
 });
 
 export class VisionClient {
+  private readonly defaultTimeoutMs: number;
+  /** 每模型/工具独立的断路器实例 */
+  private readonly breakers: Map<string, CircuitBreaker> = new Map();
+
+  constructor(defaultTimeoutMs?: number) {
+    this.defaultTimeoutMs = defaultTimeoutMs ?? config.timeoutMs;
+  }
+
+  /** 获取或创建断路器实例，key 为 model-toolName */
+  private getBreaker(
+    toolName: string,
+    modelConfig: ModelConfig
+  ): CircuitBreaker {
+    const key = `${modelConfig.model}-${toolName}`;
+    const existing = this.breakers.get(key);
+    if (existing) return existing;
+
+    const breaker = new CircuitBreaker(key, {
+      failureThreshold: config.circuitBreakerThreshold,
+      recoveryTimeMs: config.circuitBreakerRecoveryMs,
+    });
+    this.breakers.set(key, breaker);
+    return breaker;
+  }
+
   /**
    * 自由文本输出（describe / ocr / video_analyze 用）
    */
@@ -75,10 +112,12 @@ export class VisionClient {
     modelConfig: ModelConfig,
     dataUrls: string[],
     systemPrompt: string,
-    userPrompt?: string
+    userPrompt?: string,
+    timeoutMs?: number
   ): Promise<string> {
     const url = `${normalizeBaseUrl(modelConfig.baseUrl)}/chat/completions`;
     const messages = buildMessages(dataUrls, systemPrompt, userPrompt);
+    const effectiveTimeout = timeoutMs ?? this.defaultTimeoutMs;
 
     const body: Record<string, unknown> = {
       model: modelConfig.model,
@@ -92,10 +131,13 @@ export class VisionClient {
     );
 
     try {
-      return await withRetry(
-        () => this.doFetch(url, modelConfig.apiKey, body),
-        { maxAttempts: 3, baseDelayMs: 1000, maxDelayMs: 30000, shouldRetry }
+      const result = await this.executeWithBreaker('chat', modelConfig, () =>
+        withRetry(
+          () => this.doFetch(url, modelConfig.apiKey, body, effectiveTimeout),
+          { maxAttempts: 3, baseDelayMs: 1000, maxDelayMs: 30000, shouldRetry }
+        )
       );
+      return result;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       logger.error({ error: msg }, 'VisionClient.chat: 重试耗尽，降级');
@@ -110,10 +152,12 @@ export class VisionClient {
     modelConfig: ModelConfig,
     dataUrls: string[],
     systemPrompt: string,
-    userPrompt?: string
+    userPrompt?: string,
+    timeoutMs?: number
   ): Promise<string> {
     const url = `${normalizeBaseUrl(modelConfig.baseUrl)}/chat/completions`;
     const messages = buildMessages(dataUrls, systemPrompt, userPrompt);
+    const effectiveTimeout = timeoutMs ?? this.defaultTimeoutMs;
 
     const body: Record<string, unknown> = {
       model: modelConfig.model,
@@ -128,10 +172,13 @@ export class VisionClient {
     );
 
     try {
-      return await withRetry(
-        () => this.doFetch(url, modelConfig.apiKey, body),
-        { maxAttempts: 3, baseDelayMs: 1000, maxDelayMs: 30000, shouldRetry }
+      const result = await this.executeWithBreaker('analyze', modelConfig, () =>
+        withRetry(
+          () => this.doFetch(url, modelConfig.apiKey, body, effectiveTimeout),
+          { maxAttempts: 3, baseDelayMs: 1000, maxDelayMs: 30000, shouldRetry }
+        )
       );
+      return result;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       logger.error({ error: msg }, 'VisionClient.analyze: 重试耗尽，降级');
@@ -139,13 +186,40 @@ export class VisionClient {
     }
   }
 
+  /**
+   * 在断路器和并发控制的保护下执行 API 调用
+   */
+  private async executeWithBreaker<T>(
+    toolName: string,
+    modelConfig: ModelConfig,
+    fn: () => Promise<T>
+  ): Promise<T> {
+    if (!config.circuitBreakerEnabled) {
+      return getGlobalLimiter(config.maxConcurrency).execute(fn);
+    }
+
+    const breaker = this.getBreaker(toolName, modelConfig);
+
+    try {
+      return await breaker.execute(() =>
+        getGlobalLimiter(config.maxConcurrency).execute(fn)
+      );
+    } catch (error) {
+      if (error instanceof CircuitBreakerOpenError) {
+        metricsRegistry.recordCircuitBreakerTrip(toolName);
+      }
+      throw error;
+    }
+  }
+
   private async doFetch(
     url: string,
     apiKey: string,
-    body: Record<string, unknown>
+    body: Record<string, unknown>,
+    timeoutMs: number
   ): Promise<string> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120_000);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const response = await fetch(url, {

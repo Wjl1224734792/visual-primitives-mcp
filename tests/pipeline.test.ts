@@ -128,6 +128,12 @@ vi.mock('../src/config.js', () => ({
     sessionTtlSeconds: 3600,
     dbPath: ':memory:',
     port: 3000,
+    preprocessEnabled: false,
+    circuitBreakerEnabled: false,
+    circuitBreakerThreshold: 5,
+    circuitBreakerRecoveryMs: 30000,
+    maxConcurrency: 10,
+    metricsEnabled: false,
   },
 }));
 
@@ -136,6 +142,17 @@ vi.mock('node:fs', () => ({
   writeFileSync: vi.fn(),
   mkdirSync: vi.fn(),
   existsSync: vi.fn().mockReturnValue(false),
+}));
+
+vi.mock('../src/utils/metrics.js', () => ({
+  metricsRegistry: {
+    recordCall: vi.fn(),
+    recordError: vi.fn(),
+    recordCacheHit: vi.fn(),
+    recordLatency: vi.fn(),
+    recordCircuitBreakerTrip: vi.fn(),
+    recordPreprocessSkipped: vi.fn(),
+  },
 }));
 
 describe('PipelineOrchestrator', () => {

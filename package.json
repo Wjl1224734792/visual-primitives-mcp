@@ -1,6 +1,6 @@
 {
   "name": "visual-primitives-mcp",
-  "version": "1.2.1",
+  "version": "1.4.0",
   "description": "基于 DeepSeek Visual Primitives 论文的多模态空间锚定 MCP 服务器，将视觉模型的精确坐标推理能力封装为标准 MCP 工具",
   "type": "module",
   "main": "dist/server.js",
@@ -21,7 +21,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "prepare": "husky"
+    "prepare": "husky",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "npm run build && changeset publish"
   },
   "keywords": [
     "mcp",
@@ -47,6 +50,7 @@
     "bin",
     "src/templates",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE",
     ".env.example"
   ],
@@ -55,28 +59,30 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "zod": "^3.23.0",
+    "hono": "^4.0.0",
     "pino": "^9.0.0",
     "pino-pretty": "^11.0.0",
-    "hono": "^4.0.0"
+    "sharp": "^0.35.3",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
-    "typescript": "^5.5.0",
-    "@types/node": "^22.0.0",
-    "vitest": "^2.0.0",
-    "@vitest/coverage-v8": "^2.0.0",
-    "eslint": "^9.0.0",
+    "@changesets/cli": "^2.31.1",
+    "@commitlint/cli": "^19.0.0",
+    "@commitlint/config-conventional": "^19.0.0",
+    "@types/node": "^22.20.1",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
+    "@vitest/coverage-v8": "^2.0.0",
+    "eslint": "^9.0.0",
     "eslint-config-prettier": "^9.0.0",
     "eslint-plugin-import": "^2.29.0",
     "eslint-plugin-unused-imports": "^4.0.0",
-    "prettier": "^3.3.0",
     "husky": "^9.0.0",
     "lint-staged": "^15.0.0",
-    "@commitlint/cli": "^19.0.0",
-    "@commitlint/config-conventional": "^19.0.0",
-    "tsx": "^4.0.0"
+    "prettier": "^3.3.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
   },
   "lint-staged": {
     "*.ts": [
