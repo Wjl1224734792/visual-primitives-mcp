@@ -1,6 +1,6 @@
 # Visual Primitives MCP
 
-[![version](https://img.shields.io/badge/version-1.4.0-blue)](https://www.npmjs.com/package/visual-primitives-mcp)
+[![version](https://img.shields.io/badge/version-1.4.1-blue)](https://www.npmjs.com/package/visual-primitives-mcp)
 [![npm](https://img.shields.io/npm/v/visual-primitives-mcp?color=red)](https://www.npmjs.com/package/visual-primitives-mcp)
 [![license](https://img.shields.io/npm/l/visual-primitives-mcp)](./LICENSE)
 
@@ -33,9 +33,12 @@
 
 ## 推荐视觉模型
 
-| 模型             | 平台       | API URL                                             | 特点                                     |
-| ---------------- | ---------- | --------------------------------------------------- | ---------------------------------------- |
-| **qwen3.5-plus** | 阿里云百炼 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 视觉能力强、性价比高、与 OpenAI 接口兼容 |
+| 模型              | 平台       | API URL                                             | 特点                                             |
+| ----------------- | ---------- | --------------------------------------------------- | ------------------------------------------------ |
+| **qwen3.7-flash** | 阿里云百炼 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 速度快、性价比高、视觉理解能力强、支持结构化输出 |
+| **qwen3.5-ocr**   | 阿里云百炼 | 同上                                                | OCR 专用模型，文字/表格提取精度最高              |
+
+> **注意：** 阿里云结构化输出模式（`response_format: json_object`）**不要设置 `max_tokens`**，否则 JSON 可能被截断导致解析失败。本 MCP 已正确处理此约束。
 
 ## MCP 客户端配置
 
@@ -55,34 +58,28 @@
       "env": {
         "VISION_API_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "VISION_API_KEY": "你的百炼 API Key",
-        "VISION_MODEL_NAME": "qwen3.5-plus",
-        "VISION_DESCRIBE_MODEL": "qwen3-vl-plus",
-        "VISION_LOCATE_MODEL": "qwen3-vl-plus",
-        "VISION_OCR_MODEL": "qwen3-vl-ocr",
-        "VISION_VIDEO_MODEL": "qwen3-vl-plus"
+        "VISION_MODEL_NAME": "qwen3.7-flash",
+        "VISION_OCR_MODEL": "qwen3.5-ocr"
       }
     }
   }
 }
 ```
 
-如果是本地源码开发，用 `node` 直接启动：
+如果是本地源码开发，用 `tsx` 直接启动：
 
 ```json
 {
   "mcpServers": {
     "visual-primitives": {
       "type": "stdio",
-      "command": "node",
-      "args": ["dist/server.js"],
+      "command": "npx",
+      "args": ["tsx", "src/server.ts"],
       "env": {
         "VISION_API_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "VISION_API_KEY": "你的百炼 API Key",
-        "VISION_MODEL_NAME": "qwen3.5-plus",
-        "VISION_DESCRIBE_MODEL": "qwen3-vl-plus",
-        "VISION_LOCATE_MODEL": "qwen3-vl-plus",
-        "VISION_OCR_MODEL": "qwen3-vl-ocr",
-        "VISION_VIDEO_MODEL": "qwen3-vl-plus"
+        "VISION_MODEL_NAME": "qwen3.7-flash",
+        "VISION_OCR_MODEL": "qwen3.5-ocr"
       }
     }
   }
@@ -102,11 +99,8 @@
       "env": {
         "VISION_API_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "VISION_API_KEY": "你的百炼 API Key",
-        "VISION_MODEL_NAME": "qwen3.5-plus",
-        "VISION_DESCRIBE_MODEL": "qwen3-vl-plus",
-        "VISION_LOCATE_MODEL": "qwen3-vl-plus",
-        "VISION_OCR_MODEL": "qwen3-vl-ocr",
-        "VISION_VIDEO_MODEL": "qwen3-vl-plus"
+        "VISION_MODEL_NAME": "qwen3.7-flash",
+        "VISION_OCR_MODEL": "qwen3.5-ocr"
       }
     }
   }
@@ -126,11 +120,8 @@
       "environment": {
         "VISION_API_BASE_URL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "VISION_API_KEY": "你的百炼 API Key",
-        "VISION_MODEL_NAME": "qwen3.5-plus",
-        "VISION_DESCRIBE_MODEL": "qwen3-vl-plus",
-        "VISION_LOCATE_MODEL": "qwen3-vl-plus",
-        "VISION_OCR_MODEL": "qwen3-vl-ocr",
-        "VISION_VIDEO_MODEL": "qwen3-vl-plus"
+        "VISION_MODEL_NAME": "qwen3.7-flash",
+        "VISION_OCR_MODEL": "qwen3.5-ocr"
       },
       "enabled": true
     }
@@ -150,11 +141,8 @@ args = ["visual-primitives-mcp"]
 [mcp_servers.visual-primitives.env]
 VISION_API_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 VISION_API_KEY = "你的百炼 API Key"
-VISION_MODEL_NAME = "qwen3.5-plus"
-VISION_DESCRIBE_MODEL = "qwen3-vl-plus"
-VISION_LOCATE_MODEL = "qwen3-vl-plus"
-VISION_OCR_MODEL = "qwen3-vl-ocr"
-VISION_VIDEO_MODEL = "qwen3-vl-plus"
+VISION_MODEL_NAME = "qwen3.7-flash"
+VISION_OCR_MODEL = "qwen3.5-ocr"
 ```
 
 ## 环境变量配置
@@ -185,7 +173,7 @@ cp .env.example .env
 | `COORDINATE_PRECISION`        | 坐标归一化精度（`0-100` 或 `0-1000`）     | `0-1000`              | 否   |
 | `MCP_TRANSPORT`               | 传输协议（`stdio`/`sse`/`http-stream`）   | `stdio`               | 否   |
 | `LOG_LEVEL`                   | 日志级别（`debug`/`info`/`warn`/`error`） | `info`                | 否   |
-| `TIMEOUT_MS`                  | API 调用超时（毫秒）                      | `45000`               | 否   |
+| `TIMEOUT_MS`                  | API 调用超时（毫秒），推荐 ≥ 120000       | `45000`               | 否   |
 | `SESSION_TTL_SECONDS`         | 会话过期时间（秒）                        | `3600`                | 否   |
 | `DB_PATH`                     | SQLite 数据库文件路径                     | `./data/grounding.db` | 否   |
 | `PORT`                        | SSE/HTTP Stream 模式端口                  | `3000`                | 否   |
@@ -250,13 +238,15 @@ MCP_TRANSPORT=http-stream PORT=3000 npm start
 
 **task 模式说明：**
 
-| task 值           | 说明                              |
-| ----------------- | --------------------------------- |
-| `general`（默认） | 场景描述 + 物体识别 + 空间图谱    |
-| `diagram`         | 架构图/流程图/UML/ER 图结构化解读 |
-| `dataviz`         | 图表类型→轴标签→趋势→异常点→摘要  |
-| `ui_code`         | UI 截图→生成 React+Tailwind 代码  |
-| `ui_prompt`       | UI 截图→生成可复现的 LLM 提示词   |
+| task 值           | 说明                              | 输出模式              |
+| ----------------- | --------------------------------- | --------------------- |
+| `general`（默认） | 场景描述 + 物体识别 + 空间图谱    | JSON（bbox+centroid） |
+| `diagram`         | 架构图/流程图/UML/ER 图结构化解读 | 自由文本              |
+| `dataviz`         | 图表类型→轴标签→趋势→异常点→摘要  | 自由文本              |
+| `ui_code`         | UI 截图→生成 React+Tailwind 代码  | 自由文本              |
+| `ui_prompt`       | UI 截图→生成可复现的 LLM 提示词   | 自由文本              |
+
+> `diagram` / `dataviz` / `ui_code` / `ui_prompt` 使用 `chat()` 自由文本模式，不返回物体坐标。仅 `general` 模式返回 `objects`（含 bbox+centroid）。
 
 **输出 JSON Schema**：
 
@@ -598,7 +588,7 @@ flowchart TB
 - **参数校验**：Zod
 - **日志**：pino
 - **持久化**：node:sqlite（内置，WAL 模式）
-- **测试**：vitest（13 文件 174 用例）
+- **测试**：vitest（13 文件 174 用例）+ 集成测试（8 项全工具端到端）
 
 ## License
 

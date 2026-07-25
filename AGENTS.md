@@ -105,16 +105,18 @@
 
 注册 6 个工具，每个工具聚焦单一任务：
 
-| 工具名                 | 任务                                             | 系统提示词                                 |
-| ---------------------- | ------------------------------------------------ | ------------------------------------------ |
-| `visual_describe`      | 场景描述 + 物体识别（5 种 task 模式），JSON 输出 | `describe-structured.txt` + 4 个 task 模板 |
-| `visual_locate`        | 坐标定位，JSON 输出                              | `locate-system.txt`                        |
-| `visual_compare` ⭐    | 截图差异对比（critical/minor/cosmetic）          | `compare-system.txt`                       |
-| `visual_diagnose` ⭐   | 错误截图结构化诊断                               | `diagnose-system.txt`                      |
-| `visual_ocr`           | 文字/表格提取                                    | `ocr-system.txt`                           |
-| `visual_video_analyze` | 视频内容分析                                     | `describe-system.txt`                      |
+| 工具名                 | 任务                                             | 系统提示词                                 | API 模式                         |
+| ---------------------- | ------------------------------------------------ | ------------------------------------------ | -------------------------------- |
+| `visual_describe`      | 场景描述 + 物体识别（5 种 task 模式），JSON 输出 | `describe-structured.txt` + 4 个 task 模板 | analyze（general）/ chat（其余） |
+| `visual_locate`        | 坐标定位，JSON 输出                              | `locate-system.txt`                        | analyze                          |
+| `visual_compare` ⭐    | 截图差异对比（critical/minor/cosmetic）          | `compare-system.txt`                       | chat                             |
+| `visual_diagnose` ⭐   | 错误截图结构化诊断                               | `diagnose-system.txt`                      | chat                             |
+| `visual_ocr`           | 文字/表格提取                                    | `ocr-system.txt`                           | chat                             |
+| `visual_video_analyze` | 视频内容分析                                     | `describe-system.txt`                      | chat                             |
 
-> ⭐ = v1.4.0 新增
+> ⭐ = v1.4.0 新增<br>
+> **v1.4.1**：`diagram`/`dataviz`/`ui_code`/`ui_prompt` 四个 task 模式以及 `compare`/`diagnose`/`ocr`/`video` 工具使用 `chat()` 自由文本 API，不设 `response_format: json_object`。<br>
+> **v1.4.1**：`visual_compare` 和 `visual_diagnose` 新增输出规范化层——自动将模型非标准枚举值（如 `severity:"high"` → `"critical"`、`error_type:"authentication"` → `"network"`）映射为合法值，共 50+ 条映射规则。
 
 此外新增 URL 输入支持（`resolveImageSource()` 自动 fetch HTTP(S) URL）、图片智能预处理（sharp resize/压缩）。
 
@@ -132,9 +134,10 @@
 
 ```
 visual_describe:
-  1. 注入历史上下文 → [fromCache?] 跳过视觉 API | 调用 VisionClient.analyze(describe-structured) → JSON
-  2. 解析/校验/归一化物体坐标 → 入库
-  3. 构建空间关系图谱（纯本地计算）→ 返回 description + objects + spatial_graph
+  1. 注入历史上下文 → [fromCache?] 跳过视觉 API | 调用 VisionClient
+  2. task=diagram/dataviz/ui_code/ui_prompt → chat()（自由文本）
+  3. task=general → analyze()（json_object）→ 解析/校验/归一化物体坐标 → 入库
+  4. 构建空间关系图谱（纯本地计算）→ 返回 description + objects + spatial_graph
 
 visual_locate:
   1. [可选] 新媒体 → VisionClient.analyze(locate-system) → JSON
@@ -143,6 +146,12 @@ visual_locate:
 
 visual_ocr:
   1. data URL → VisionClient.chat(ocr-system) → 返回文字
+
+visual_compare:
+  1. 两张图 data URL → VisionClient.chat(compare-system) → JSON 解析 → 枚举规范化 → 返回差异列表
+
+visual_diagnose:
+  1. 错误截图 data URL → VisionClient.chat(diagnose-system) → JSON 解析 → 枚举规范化 → 返回诊断报告
 
 visual_video_analyze:
   1. 注入历史上下文 → data URL → VisionClient.chat(describe-system) → 返回描述
@@ -159,10 +168,10 @@ visual_video_analyze:
 - 直接接受 data URL（`data:image/...;base64,...` 或 `data:video/...;base64,...`）
 - 根据 MIME 前缀自动选 `image_url` / `video_url`，视频不做帧提取
 - 两个入口：
-  - `chat(modelConfig, dataUrls, systemPrompt, userPrompt?)` — 自由文本输出
-  - `analyze(modelConfig, dataUrls, systemPrompt, userPrompt?)` — JSON 输出（`response_format: json_object`）
+  - `chat(modelConfig, dataUrls, systemPrompt, userPrompt?)` — 自由文本输出（无 `response_format` 约束，不设 `max_tokens`）
+  - `analyze(modelConfig, dataUrls, systemPrompt, userPrompt?)` — JSON 输出（`response_format: json_object`，不设 `max_tokens`——阿里云结构化输出模式的硬性要求）
 - `modelConfig` 由各任务方法从 `config.describe` / `config.locate` / `config.ocr` / `config.video` 传入
-- 指数退避重试（最多 3 次）+ 120s 超时
+- 指数退避重试（最多 3 次）+ 可配置超时（`TIMEOUT_MS`，默认 45s，推荐 120s）
 
 #### `parser.ts` — 响应解析器
 
@@ -291,12 +300,14 @@ Round 3: visual_locate（"表格右上角的分页器"）
 
 ## 6. 降级策略
 
-| 阶段       | 异常              | 处理                            |
-| ---------- | ----------------- | ------------------------------- |
-| 视觉客户端 | 网络/超时/429/5xx | 指数退避 3 次 → 降级结果        |
-| 解析器     | JSON 格式错误     | 正则备用 → `AnalysisParseError` |
-| 校验器     | 坐标越界/ID 重复  | `ValidationError` → 跳过此轮    |
-| 整体       | 任何未捕获异常    | 降级输出 → 不崩溃               |
+| 阶段       | 异常              | 处理                             |
+| ---------- | ----------------- | -------------------------------- |
+| 视觉客户端 | 网络/超时/429/5xx | 指数退避 3 次 → 降级结果         |
+| 断路器     | 连续失败 ≥ 阈值   | 熔断 → 拒绝请求 → 30s 后试探恢复 |
+| 解析器     | JSON 格式错误     | 正则备用 → `AnalysisParseError`  |
+| 枚举规范化 | 模型输出非标准值  | 50+ 条映射规则 → 合法枚举        |
+| 校验器     | 坐标越界/ID 重复  | `ValidationError` → 跳过此轮     |
+| 整体       | 任何未捕获异常    | 降级输出 → 不崩溃                |
 
 ---
 

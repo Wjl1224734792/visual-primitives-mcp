@@ -12,6 +12,7 @@ coverage/
 docs/
 .mcp.json
 data/
+integration-tests/
 
 # changesets 临时 changelog 文件（仅保留 config.json 和 README.md）
 .changeset/*.md

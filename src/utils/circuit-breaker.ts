@@ -63,8 +63,22 @@ function defaultShouldCountAsFailure(error: Error): boolean {
 }
 
 function extractStatusCode(message: string): number {
-  const match = message.match(/错误状态 (\d{3})/);
-  return match?.[1] ? parseInt(match[1], 10) : 0;
+  // 匹配日语/英语/中文等错误信息中的状态码
+  const patterns: ReadonlyArray<RegExp> = [
+    /(\d{3})\s*(?:HTTP|http|Status|status|状态|Estado|エラー|错误)/,
+    /(?:HTTP|http|Status|status|状态|Estado|エラー|错误)(?:\s*[:：]?\s*)(\d{3})/,
+    /(?:错误状态|エラーステータス|error\s*status|status\s*code)[^\d]*(\d{3})/i,
+    // 通用回退：独立的 3 位数字（4xx/5xx only —— 安全过滤避免误匹配）
+    /\b([45]\d{2})\b/,
+  ];
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    if (match?.[1]) {
+      const code = parseInt(match[1], 10);
+      if (code >= 100 && code < 600) return code;
+    }
+  }
+  return 0;
 }
 
 // ---- CircuitBreaker ----

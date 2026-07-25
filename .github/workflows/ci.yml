@@ -74,8 +74,8 @@ jobs:
       - run: npm run build
       - name: Verify templates in dist
         run: |
-          if [ "$(ls dist/templates/*.txt 2>/dev/null | wc -l)" -lt 4 ]; then
-            echo "ERROR: Templates missing from dist!"
+          if [ "$(ls dist/templates/*.txt 2>/dev/null | wc -l)" -lt 10 ]; then
+            echo "ERROR: Templates missing from dist! Expected >=10, got $(ls dist/templates/*.txt 2>/dev/null | wc -l)"
             exit 1
           fi
           echo "Templates OK: $(ls dist/templates/*.txt | wc -l) files"

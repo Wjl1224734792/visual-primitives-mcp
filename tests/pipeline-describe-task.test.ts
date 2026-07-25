@@ -206,16 +206,10 @@ describe('Pipeline.describe() - task 参数', () => {
     expect(mockVisionClient.analyze).toHaveBeenCalled();
   });
 
-  it('task=diagram 使用架构图模板', async () => {
+  it('task=diagram 使用架构图模板（chat 自由文本）', async () => {
     const mockVisionClient = {
-      chat: vi.fn(),
-      analyze: vi.fn().mockResolvedValue(
-        JSON.stringify({
-          reasoning: '微服务架构图',
-          objects: [],
-          spatial_relationships: [],
-        })
-      ),
+      chat: vi.fn().mockResolvedValue('这是一个微服务架构图，包含以下组件...'),
+      analyze: vi.fn(),
     };
 
     const pipeline = new PipelineOrchestrator(
@@ -230,9 +224,11 @@ describe('Pipeline.describe() - task 参数', () => {
       task: 'diagram',
     });
 
-    expect(mockVisionClient.analyze).toHaveBeenCalled();
-    // verify the system prompt was loaded from the diagram template
-    const callArgs = mockVisionClient.analyze.mock.calls[0] as unknown[];
+    // diagram 使用 chat()（自由文本），非 analyze()（json_object）
+    expect(mockVisionClient.chat).toHaveBeenCalled();
+    expect(mockVisionClient.analyze).not.toHaveBeenCalled();
+    // 验证系统提示词来自 diagram 模板
+    const callArgs = mockVisionClient.chat.mock.calls[0] as unknown[];
     const systemPrompt = callArgs[2] as string;
     expect(systemPrompt).toContain('架构分析师');
   });
@@ -292,44 +288,14 @@ describe('Pipeline.describe() - task 参数', () => {
     expect(mockVisionClient.analyze).toHaveBeenCalled();
   });
 
-  it('task=ui_code 仍正确设置会话和物体', async () => {
-    // 覆盖 parser mock 使其返回有物体的结果
-    const parserModule = await import('../src/core/parser.js');
-    (
-      parserModule.parseResponse as ReturnType<typeof vi.fn>
-    ).mockReturnValueOnce({
-      reasoning: '生成按钮组件代码',
-      objects: [
-        {
-          id: 1,
-          label: '提交按钮',
-          bbox: [400, 600, 600, 660],
-          centroid: [500, 630],
-          state: '正常',
-          relevance: '高',
-        },
-      ],
-      spatial_relationships: [],
-    });
-
+  it('task=ui_code 使用 chat() 自由文本模式，不解析物体', async () => {
     const mockVisionClient = {
-      chat: vi.fn(),
-      analyze: vi.fn().mockResolvedValue(
-        JSON.stringify({
-          reasoning: 'ok',
-          objects: [
-            {
-              id: 1,
-              label: '提交按钮',
-              bbox: [400, 600, 600, 660],
-              centroid: [500, 630],
-              state: '正常',
-              relevance: '高',
-            },
-          ],
-          spatial_relationships: [],
-        })
-      ),
+      chat: vi
+        .fn()
+        .mockResolvedValue(
+          'import React from "react";\n\n// 生成的按钮组件代码...'
+        ),
+      analyze: vi.fn(),
     };
 
     const sm = makeMockSessionManager();
@@ -342,7 +308,14 @@ describe('Pipeline.describe() - task 参数', () => {
       task: 'ui_code',
     });
 
+    // ui_code 使用 chat() 而非 analyze()
+    expect(mockVisionClient.chat).toHaveBeenCalled();
+    expect(mockVisionClient.analyze).not.toHaveBeenCalled();
+    // 返回自由文本描述
+    expect(result.description).toBeDefined();
+    expect(result.description).toContain('React');
+    // objects 为空数组（自由文本模式不解析物体）
     expect(result.objects).toBeDefined();
-    expect(sm.upsertObjects).toHaveBeenCalled();
+    expect(result.objects).toHaveLength(0);
   });
 });

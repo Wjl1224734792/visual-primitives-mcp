@@ -20,6 +20,7 @@ import type {
   CompareOutput,
   DiagnoseInput,
   DiagnoseOutput,
+  DiagnoseErrorType,
   VideoAnalyzeInput,
   VideoAnalyzeOutput,
   VisualAnalysisResult,
@@ -257,47 +258,69 @@ export class PipelineOrchestrator {
           ? `${historyContext}\n\n现在请回答以下问题（注意结合之前的上下文）：${basePrompt}`
           : basePrompt;
 
-        const raw = await this.visionClient.analyze(
-          config.describe,
-          dataUrls,
-          selectedPrompt,
-          userPrompt
-        );
+        // diagram/dataviz/ui_code/ui_prompt 任务期望自由文本输出
+        // （图表分析/数据洞察/React代码/提示词），使用 chat() 而非 analyze()
+        const textTasks: ReadonlySet<string> = new Set([
+          'diagram',
+          'dataviz',
+          'ui_code',
+          'ui_prompt',
+        ]);
+        const isTextTask = textTasks.has(effectiveTask);
 
-        const parsed: VisualAnalysisResult = parseResponse(raw);
-        validateObjects(parsed.objects, precision);
-        const normalized = normalizeObjects(
-          parsed.objects,
-          precision,
-          precision
-        );
-
-        // 存储物体到会话
-        const sessionObjects = visualToSessionObjects(
-          normalized,
-          mediaType,
-          round
-        );
-        if (sessionObjects.length > 0) {
-          this.sessionManager.upsertObjects(
-            sessionId,
-            sessionObjects,
-            'augment'
+        if (isTextTask) {
+          const raw = await this.visionClient.chat(
+            config.describe,
+            dataUrls,
+            selectedPrompt,
+            userPrompt
           );
+          description = raw;
+          objects = [];
+        } else {
+          const raw = await this.visionClient.analyze(
+            config.describe,
+            dataUrls,
+            selectedPrompt,
+            userPrompt
+          );
+
+          const parsed: VisualAnalysisResult = parseResponse(raw);
+          validateObjects(parsed.objects, precision);
+          const normalized = normalizeObjects(
+            parsed.objects,
+            precision,
+            precision
+          );
+
+          // 存储物体到会话
+          const sessionObjects = visualToSessionObjects(
+            normalized,
+            mediaType,
+            round
+          );
+          if (sessionObjects.length > 0) {
+            this.sessionManager.upsertObjects(
+              sessionId,
+              sessionObjects,
+              'augment'
+            );
+          }
+
+          objects = normalized.map(obj => ({
+            id: obj.id,
+            label: obj.label,
+            bbox: obj.bbox,
+            centroid: obj.centroid,
+            color: obj.color,
+            state: obj.state,
+            relevance: obj.relevance,
+            position_hint: computePositionHint(obj.centroid, precision),
+          }));
+
+          description =
+            parsed.reasoning ?? '（视觉模型已识别画面中的关键物体）';
         }
-
-        objects = normalized.map(obj => ({
-          id: obj.id,
-          label: obj.label,
-          bbox: obj.bbox,
-          centroid: obj.centroid,
-          color: obj.color,
-          state: obj.state,
-          relevance: obj.relevance,
-          position_hint: computePositionHint(obj.centroid, precision),
-        }));
-
-        description = parsed.reasoning ?? '（视觉模型已识别画面中的关键物体）';
       }
 
       this.sessionManager.addConversationTurn(
@@ -666,24 +689,184 @@ export class PipelineOrchestrator {
 
 // ---- 解析辅助函数 ----
 
+/** compare 差异类型合法值 */
+const VALID_COMPARE_TYPES: ReadonlySet<string> = new Set([
+  'layout',
+  'color',
+  'text',
+  'element',
+  'other',
+]);
+
+/** compare 严重程度合法值 */
+const VALID_COMPARE_SEVERITIES: ReadonlySet<string> = new Set([
+  'critical',
+  'minor',
+  'cosmetic',
+]);
+
+/** 模型输出的非标准 severity → 标准值映射（模型可能输出 high/major/error 等词） */
+const SEVERITY_NORMALIZE: Record<string, string> = {
+  high: 'critical',
+  major: 'critical',
+  error: 'critical',
+  fatal: 'critical',
+  warning: 'minor',
+  low: 'cosmetic',
+  info: 'cosmetic',
+};
+
+/** 模型输出的非标准 type → 标准值映射 */
+const TYPE_NORMALIZE: Record<string, string> = {
+  error: 'text',
+  font: 'text',
+  size: 'layout',
+  position: 'layout',
+  margin: 'layout',
+  padding: 'layout',
+  spacing: 'layout',
+  alignment: 'layout',
+  style: 'color',
+  background: 'color',
+  border: 'element',
+  icon: 'element',
+  button: 'element',
+  image: 'element',
+};
+
+/** diagnose 错误类型合法值 */
+const VALID_ERROR_TYPES: ReadonlySet<string> = new Set([
+  'runtime',
+  'build',
+  'network',
+  'database',
+  'unknown',
+]);
+
+/** diagnose 严重程度合法值 */
+const VALID_SEVERITIES: ReadonlySet<string> = new Set([
+  'error',
+  'warning',
+  'info',
+]);
+
+/** 模型输出的非标准 error_type → 标准值映射 */
+const ERROR_TYPE_NORMALIZE: Record<string, string> = {
+  authentication: 'network',
+  auth: 'network',
+  authorization: 'network',
+  permission: 'network',
+  timeout: 'network',
+  dns: 'network',
+  ssl: 'network',
+  certificate: 'network',
+  connection: 'network',
+  compile: 'build',
+  syntax: 'build',
+  typecheck: 'build',
+  lint: 'build',
+  bundle: 'build',
+  query: 'database',
+  sql: 'database',
+  migration: 'database',
+  schema: 'database',
+  crash: 'runtime',
+  nullpointer: 'runtime',
+  undefined: 'runtime',
+  exception: 'runtime',
+  panic: 'runtime',
+};
+
+/**
+ * 规范化任意字符串到合法 CompareFocus 类型，失败回退 other
+ */
+function normalizeType(raw: string): string {
+  const lowered = raw.toLowerCase().trim();
+  if (VALID_COMPARE_TYPES.has(lowered)) return lowered;
+  return TYPE_NORMALIZE[lowered] ?? 'other';
+}
+
+/**
+ * 规范化任意字符串到合法 severity，失败回退 minor
+ */
+function normalizeSeverity(raw: string): string {
+  const lowered = raw.toLowerCase().trim();
+  if (VALID_COMPARE_SEVERITIES.has(lowered)) return lowered;
+  return SEVERITY_NORMALIZE[lowered] ?? 'minor';
+}
+
+/**
+ * 规范化任意字符串到合法 DiagnoseErrorType，失败回退 unknown
+ */
+function normalizeErrorType(raw: string): DiagnoseErrorType {
+  const lowered = raw.toLowerCase().trim();
+  if (VALID_ERROR_TYPES.has(lowered)) return lowered as DiagnoseErrorType;
+  const normalized = ERROR_TYPE_NORMALIZE[lowered] ?? 'unknown';
+  return (
+    VALID_ERROR_TYPES.has(normalized) ? normalized : 'unknown'
+  ) as DiagnoseErrorType;
+}
+
+/**
+ * 规范化任意字符串到合法 severity (error/warning/info)
+ */
+function normalizeDiagnoseSeverity(raw: string): 'error' | 'warning' | 'info' {
+  const lowered = raw.toLowerCase().trim();
+  if (VALID_SEVERITIES.has(lowered))
+    return lowered as 'error' | 'warning' | 'info';
+  // map common non-standard values
+  if (lowered === 'critical' || lowered === 'fatal' || lowered === 'high')
+    return 'error';
+  if (lowered === 'low' || lowered === 'minor' || lowered === 'cosmetic')
+    return 'warning';
+  return 'info';
+}
+
 /**
  * 解析 compare 响应为 CompareOutput，失败时返回降级结果
  */
 function parseCompareResponse(raw: string): CompareOutput {
   try {
-    const parsed = JSON.parse(raw) as CompareOutput;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
     if (!parsed.summary || !Array.isArray(parsed.differences)) {
       throw new Error('compare 响应格式不正确');
     }
-    return parsed;
+    return {
+      summary: String(parsed.summary),
+      differences: (parsed.differences as Array<Record<string, unknown>>).map(
+        (d, index) => ({
+          id:
+            typeof d.id === 'number'
+              ? d.id
+              : typeof d.id === 'string'
+                ? parseInt(d.id, 10) || index + 1
+                : index + 1,
+          severity: normalizeSeverity(
+            typeof d.severity === 'string' ? d.severity : 'minor'
+          ),
+          type: normalizeType(typeof d.type === 'string' ? d.type : 'other'),
+          description: typeof d.description === 'string' ? d.description : '',
+          location_hint:
+            typeof d.location_hint === 'string' ? d.location_hint : undefined,
+          bbox_approx: Array.isArray(d.bbox_approx)
+            ? (d.bbox_approx.slice(0, 4).map(Number) as [
+                number,
+                number,
+                number,
+                number,
+              ])
+            : undefined,
+        })
+      ) as CompareOutput['differences'],
+    };
   } catch {
     // 尝试从文本中提取 JSON
     const match = raw.match(/\{[\s\S]*\}/);
     if (match) {
       try {
-        const parsed = JSON.parse(match[0]) as CompareOutput;
-        if (parsed.summary && Array.isArray(parsed.differences)) {
-          return parsed;
+        const extracted = JSON.parse(match[0]) as Record<string, unknown>;
+        if (extracted.summary && Array.isArray(extracted.differences)) {
+          return parseCompareResponse(match[0]); // 递归用规范化逻辑
         }
       } catch {
         // 降级
@@ -701,19 +884,35 @@ function parseCompareResponse(raw: string): CompareOutput {
  */
 function parseDiagnoseResponse(raw: string): DiagnoseOutput {
   try {
-    const parsed = JSON.parse(raw) as DiagnoseOutput;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
     if (!parsed.diagnosis || !parsed.root_cause) {
       throw new Error('diagnose 响应格式不正确');
     }
-    return parsed;
+    return {
+      diagnosis: String(parsed.diagnosis),
+      root_cause: String(parsed.root_cause),
+      suggested_fix:
+        typeof parsed.suggested_fix === 'string'
+          ? parsed.suggested_fix
+          : '请稍后重试',
+      severity: normalizeDiagnoseSeverity(
+        typeof parsed.severity === 'string' ? parsed.severity : 'error'
+      ),
+      error_type: normalizeErrorType(
+        typeof parsed.error_type === 'string' ? parsed.error_type : 'unknown'
+      ),
+      related_hints: Array.isArray(parsed.related_hints)
+        ? (parsed.related_hints as string[]).map(String)
+        : [],
+    };
   } catch {
     // 尝试从文本中提取 JSON
     const match = raw.match(/\{[\s\S]*\}/);
     if (match) {
       try {
-        const parsed = JSON.parse(match[0]) as DiagnoseOutput;
-        if (parsed.diagnosis && parsed.root_cause) {
-          return parsed;
+        const extracted = JSON.parse(match[0]) as Record<string, unknown>;
+        if (extracted.diagnosis && extracted.root_cause) {
+          return parseDiagnoseResponse(match[0]); // 递归用规范化逻辑
         }
       } catch {
         // 降级

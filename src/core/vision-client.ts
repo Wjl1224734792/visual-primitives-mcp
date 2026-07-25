@@ -122,7 +122,6 @@ export class VisionClient {
     const body: Record<string, unknown> = {
       model: modelConfig.model,
       messages,
-      max_tokens: 4096,
     };
 
     logger.info(
@@ -163,7 +162,6 @@ export class VisionClient {
       model: modelConfig.model,
       messages,
       response_format: { type: 'json_object' as const },
-      max_tokens: 4096,
     };
 
     logger.info(

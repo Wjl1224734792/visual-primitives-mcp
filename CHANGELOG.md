@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.1
+
+### Patch Changes
+
+- **阿里云结构化输出兼容：** 移除 `max_tokens` 硬编码（阿里云文档明确要求结构化输出模式不设 `max_tokens`，截断会导致 JSON 不可解析）
+- **文本任务路由：** `task=diagram/dataviz/ui_code/ui_prompt` 自动切换为 `chat()`（自由文本），避免 `json_object` 模式破坏图表分析/代码生成/提示词输出的自然语言格式
+- **枚举规范化：** `visual_compare` 和 `visual_diagnose` 新增模型输出规范化层——自动将非标准值（`severity: "high"` → `"critical"`、`error_type: "authentication"` → `"network"` 等 50+ 映射）转为合法枚举，防止下游类型错误
+- **断路器状态码提取：** 正则从仅匹配中文扩展为多语言（英语/日语/西班牙语）+ 4xx/5xx 通用回退，避免非中文错误信息导致断路器误判为故障
+- **集成测试：** 新增 `integration-tests/` 目录（gitignore 保护），包含 8 项全工具端到端测试（describe 基础/缓存/task 模式、locate、OCR、compare、diagnose、video）
+
 ## 1.4.0
 
 ### Minor Changes
