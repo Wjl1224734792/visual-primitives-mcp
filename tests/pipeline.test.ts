@@ -259,8 +259,7 @@ describe('PipelineOrchestrator', () => {
       };
 
       const mockVisionClient = {
-        chat: vi.fn(),
-        analyze: vi.fn().mockResolvedValue('{}'),
+        chat: vi.fn().mockResolvedValue('{}'),
       };
 
       const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
@@ -289,7 +288,7 @@ describe('PipelineOrchestrator', () => {
       const inputField = result.objects!.find(o => o.label === '用户名输入框');
       expect(inputField!.position_hint).toContain('上');
 
-      expect(mockVisionClient.analyze).toHaveBeenCalled();
+      expect(mockVisionClient.chat).toHaveBeenCalled();
       expect(mockSessionManager.upsertObjects).toHaveBeenCalled();
       expect(mockSessionManager.addConversationTurn).toHaveBeenCalledTimes(2);
     });
@@ -331,8 +330,7 @@ describe('PipelineOrchestrator', () => {
       };
 
       const mockVisionClient = {
-        chat: vi.fn(),
-        analyze: vi.fn().mockResolvedValue('{}'),
+        chat: vi.fn().mockResolvedValue('{}'),
       };
 
       const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
@@ -346,8 +344,8 @@ describe('PipelineOrchestrator', () => {
         prompt: '搜索框在哪',
       });
 
-      // 验证 analyze 被调用时 prompt 注入了历史上下文
-      const callArgs = mockVisionClient.analyze.mock.calls[0] as unknown[];
+      // 验证 chat 被调用时 prompt 注入了历史上下文
+      const callArgs = mockVisionClient.chat.mock.calls[0] as unknown[];
       const userPrompt = callArgs[3] as string;
       expect(userPrompt).toContain('已有场景上下文');
       expect(userPrompt).toContain('导航栏和搜索框');
@@ -372,8 +370,7 @@ describe('PipelineOrchestrator', () => {
       };
 
       const mockVisionClient = {
-        chat: vi.fn(),
-        analyze: vi.fn().mockRejectedValue(new Error('网络超时')),
+        chat: vi.fn().mockRejectedValue(new Error('网络超时')),
       };
 
       const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
@@ -419,7 +416,6 @@ describe('PipelineOrchestrator', () => {
 
       const mockVisionClient = {
         chat: vi.fn().mockResolvedValue(MOCK_VISION_SUCCESS),
-        analyze: vi.fn(),
       };
 
       const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
@@ -472,7 +468,7 @@ describe('PipelineOrchestrator', () => {
         addConversationTurn: vi.fn(),
       };
 
-      const mockVisionClient = { chat: vi.fn(), analyze: vi.fn() };
+      const mockVisionClient = { chat: vi.fn() };
 
       const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
         mockSessionManager,
@@ -511,7 +507,6 @@ describe('PipelineOrchestrator', () => {
 
       const mockVisionClient = {
         chat: vi.fn().mockRejectedValue(new Error('API 不可用')),
-        analyze: vi.fn(),
       };
 
       const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
@@ -538,7 +533,6 @@ describe('PipelineOrchestrator', () => {
     it('应返回 OCR 识别的文字内容', async () => {
       const mockVisionClient = {
         chat: vi.fn().mockResolvedValue('识别结果：\n第一行文字\n第二行文字'),
-        analyze: vi.fn(),
       };
 
       const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
@@ -557,7 +551,6 @@ describe('PipelineOrchestrator', () => {
     it('VisionClient 异常时返回降级文本', async () => {
       const mockVisionClient = {
         chat: vi.fn().mockRejectedValue(new Error('服务不可用')),
-        analyze: vi.fn(),
       };
 
       const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
@@ -596,7 +589,6 @@ describe('PipelineOrchestrator', () => {
 
       const mockVisionClient = {
         chat: vi.fn().mockResolvedValue('视频展示了一个人在公园散步'),
-        analyze: vi.fn(),
       };
 
       const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
@@ -646,7 +638,6 @@ describe('PipelineOrchestrator', () => {
 
       const mockVisionClient = {
         chat: vi.fn().mockResolvedValue('此人穿着蓝色外套'),
-        analyze: vi.fn(),
       };
 
       const pipeline = new PipelineOrchestrator.PipelineOrchestrator(
