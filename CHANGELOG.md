@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.5.0
+
+### Minor Changes
+
+- **Prompt-Driven JSON：** 删除 `analyze()`（`response_format: json_object`），所有 API 调用统一使用 `chat()`。JSON 格式控制权从 API 参数层移至提示词模板层，消除厂商锁定（阿里云 `json_object` 要求 messages 含 "json" 词、禁止 `max_tokens` 等限制）
+- **宽容解析：** `parseResponse()` 失败返回 `null` 而非抛异常，管线降级纯文本不中断
+- **模板增强：** 结构化输出模板末尾追加 JSON 格式指令 + 空 objects 容错说明
+- **描述字段回退：** `parser.ts` 支持 `description` 字段作为 `reasoning` 的回退（兼容不同模型命名偏好）
+- **测试：** 176 用例全部通过，零回归
+
 ## 1.4.1
 
 ### Patch Changes

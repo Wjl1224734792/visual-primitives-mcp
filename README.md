@@ -1,6 +1,6 @@
 # Visual Primitives MCP
 
-[![version](https://img.shields.io/badge/version-1.4.1-blue)](https://www.npmjs.com/package/visual-primitives-mcp)
+[![version](https://img.shields.io/badge/version-1.5.0-blue)](https://www.npmjs.com/package/visual-primitives-mcp)
 [![npm](https://img.shields.io/npm/v/visual-primitives-mcp?color=red)](https://www.npmjs.com/package/visual-primitives-mcp)
 [![license](https://img.shields.io/npm/l/visual-primitives-mcp)](./LICENSE)
 
@@ -38,7 +38,7 @@
 | **qwen3.7-flash** | 阿里云百炼 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 速度快、性价比高、视觉理解能力强、支持结构化输出 |
 | **qwen3.5-ocr**   | 阿里云百炼 | 同上                                                | OCR 专用模型，文字/表格提取精度最高              |
 
-> **注意：** 阿里云结构化输出模式（`response_format: json_object`）**不要设置 `max_tokens`**，否则 JSON 可能被截断导致解析失败。本 MCP 已正确处理此约束。
+> **注意：** 本 MCP 使用 **Prompt-Driven JSON**——所有工具通过提示词自然驱动模型输出，不再依赖 API 层的 `response_format` 参数。因此兼容**任何** OpenAI 兼容端点（OpenAI / 阿里云百炼 / 本地 Ollama / vLLM / 任何自建服务），无需为不同厂商编写适配器。
 
 ## MCP 客户端配置
 

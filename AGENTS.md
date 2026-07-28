@@ -17,7 +17,7 @@
 | 持久化   | node:sqlite（内置）            |
 | 校验     | Zod                            |
 | 日志     | pino（敏感字段脱敏）           |
-| 测试     | vitest（13 文件 174 用例）     |
+| 测试     | vitest（13 文件 176 用例）     |
 
 ---
 
@@ -105,16 +105,17 @@
 
 注册 6 个工具，每个工具聚焦单一任务：
 
-| 工具名                 | 任务                                             | 系统提示词                                 | API 模式                         |
-| ---------------------- | ------------------------------------------------ | ------------------------------------------ | -------------------------------- |
-| `visual_describe`      | 场景描述 + 物体识别（5 种 task 模式），JSON 输出 | `describe-structured.txt` + 4 个 task 模板 | analyze（general）/ chat（其余） |
-| `visual_locate`        | 坐标定位，JSON 输出                              | `locate-system.txt`                        | analyze                          |
-| `visual_compare` ⭐    | 截图差异对比（critical/minor/cosmetic）          | `compare-system.txt`                       | chat                             |
-| `visual_diagnose` ⭐   | 错误截图结构化诊断                               | `diagnose-system.txt`                      | chat                             |
-| `visual_ocr`           | 文字/表格提取                                    | `ocr-system.txt`                           | chat                             |
-| `visual_video_analyze` | 视频内容分析                                     | `describe-system.txt`                      | chat                             |
+| 工具名                 | 任务                                             | 系统提示词                                 | API 模式 |
+| ---------------------- | ------------------------------------------------ | ------------------------------------------ | -------- |
+| `visual_describe`      | 场景描述 + 物体识别（5 种 task 模式），JSON 输出 | `describe-structured.txt` + 4 个 task 模板 | chat     |
+| `visual_locate`        | 坐标定位，JSON 输出                              | `locate-system.txt`                        | chat     |
+| `visual_compare` ⭐    | 截图差异对比（critical/minor/cosmetic）          | `compare-system.txt`                       | chat     |
+| `visual_diagnose` ⭐   | 错误截图结构化诊断                               | `diagnose-system.txt`                      | chat     |
+| `visual_ocr`           | 文字/表格提取                                    | `ocr-system.txt`                           | chat     |
+| `visual_video_analyze` | 视频内容分析                                     | `describe-system.txt`                      | chat     |
 
 > ⭐ = v1.4.0 新增<br>
+> **v1.5.0**：所有 6 个工具统一使用 `chat()`（自由文本），删除 `analyze()`（`response_format: json_object`）。JSON 格式指令从 API 参数层移至提示词模板层（Prompt-Driven JSON），从而消除厂商锁定（阿里云需 messages 中含 "json" 词等限制）。`parseResponse()` 失败时返回 null 而非抛异常，管线降级纯文本不中断。<br>
 > **v1.4.1**：`diagram`/`dataviz`/`ui_code`/`ui_prompt` 四个 task 模式以及 `compare`/`diagnose`/`ocr`/`video` 工具使用 `chat()` 自由文本 API，不设 `response_format: json_object`。<br>
 > **v1.4.1**：`visual_compare` 和 `visual_diagnose` 新增输出规范化层——自动将模型非标准枚举值（如 `severity:"high"` → `"critical"`、`error_type:"authentication"` → `"network"`）映射为合法值，共 50+ 条映射规则。
 
@@ -134,13 +135,13 @@
 
 ```
 visual_describe:
-  1. 注入历史上下文 → [fromCache?] 跳过视觉 API | 调用 VisionClient
-  2. task=diagram/dataviz/ui_code/ui_prompt → chat()（自由文本）
-  3. task=general → analyze()（json_object）→ 解析/校验/归一化物体坐标 → 入库
+  1. 注入历史上下文 → [fromCache?] 跳过视觉 API | 调用 VisionClient.chat()
+  2. 所有 task 模式统一使用 chat()（Prompt-Driven JSON）
+  3. 解析/校验/归一化物体坐标（JSON 提取成功）→ 入库
   4. 构建空间关系图谱（纯本地计算）→ 返回 description + objects + spatial_graph
 
 visual_locate:
-  1. [可选] 新媒体 → VisionClient.analyze(locate-system) → JSON
+  1. [可选] 新媒体 → VisionClient.chat(locate-system) → 尝试 JSON 解析
   2. 注入会话上下文（历史描述 + 物体缓存 + 图谱）
   3. 解析/校验/归一化坐标 → 入库 → 返回
 
@@ -167,9 +168,7 @@ visual_video_analyze:
 - OpenAI Chat Completions 兼容接口
 - 直接接受 data URL（`data:image/...;base64,...` 或 `data:video/...;base64,...`）
 - 根据 MIME 前缀自动选 `image_url` / `video_url`，视频不做帧提取
-- 两个入口：
-  - `chat(modelConfig, dataUrls, systemPrompt, userPrompt?)` — 自由文本输出（无 `response_format` 约束，不设 `max_tokens`）
-  - `analyze(modelConfig, dataUrls, systemPrompt, userPrompt?)` — JSON 输出（`response_format: json_object`，不设 `max_tokens`——阿里云结构化输出模式的硬性要求）
+- **唯一入口：** `chat(modelConfig, dataUrls, systemPrompt, userPrompt?)` — 自由文本输出，body 只含 `model` + `messages`（无 `response_format`、无 `max_tokens`），JSON 格式由提示词模板驱动
 - `modelConfig` 由各任务方法从 `config.describe` / `config.locate` / `config.ocr` / `config.video` 传入
 - 指数退避重试（最多 3 次）+ 可配置超时（`TIMEOUT_MS`，默认 45s，推荐 120s）
 
@@ -177,6 +176,7 @@ visual_video_analyze:
 
 - 主路径：`JSON.parse(content)`
 - 备用路径：正则提取第一个完整 JSON `/\{[\s\S]*\}/`
+- **宽容降级：** 解析失败返回 `null`（不抛异常），由上游管线降级为纯文本
 - `visual_describe` 和 `visual_locate` 共用
 
 #### `validator.ts` — 坐标校验器
@@ -300,31 +300,33 @@ Round 3: visual_locate（"表格右上角的分页器"）
 
 ## 6. 降级策略
 
-| 阶段       | 异常              | 处理                             |
-| ---------- | ----------------- | -------------------------------- |
-| 视觉客户端 | 网络/超时/429/5xx | 指数退避 3 次 → 降级结果         |
-| 断路器     | 连续失败 ≥ 阈值   | 熔断 → 拒绝请求 → 30s 后试探恢复 |
-| 解析器     | JSON 格式错误     | 正则备用 → `AnalysisParseError`  |
-| 枚举规范化 | 模型输出非标准值  | 50+ 条映射规则 → 合法枚举        |
-| 校验器     | 坐标越界/ID 重复  | `ValidationError` → 跳过此轮     |
-| 整体       | 任何未捕获异常    | 降级输出 → 不崩溃                |
+| 阶段       | 异常               | 处理                             |
+| ---------- | ------------------ | -------------------------------- |
+| 视觉客户端 | 网络/超时/429/5xx  | 指数退避 3 次 → 降级结果         |
+| 断路器     | 连续失败 ≥ 阈值    | 熔断 → 拒绝请求 → 30s 后试探恢复 |
+| 解析器     | JSON 格式/字段缺失 | 正则备用 → null → 管线降级纯文本 |
+| 枚举规范化 | 模型输出非标准值   | 50+ 条映射规则 → 合法枚举        |
+| 校验器     | 坐标越界/ID 重复   | `ValidationError` → 跳过此轮     |
+| 整体       | 任何未捕获异常     | 降级输出 → 不崩溃                |
 
 ---
 
 ## 7. 关键设计决策
 
-| 决策          | 选择                                                      | 理由                                           |
-| ------------- | --------------------------------------------------------- | ---------------------------------------------- |
-| 任务调度      | 6 个独立工具 + 管道方法分发                               | 每个工具专注一件事，系统提示词独立优化         |
-| 两阶段推理    | describe（自然语言）→ locate（JSON）                      | 先理解再定位，避免同时做两件事导致的精度下降   |
-| 上下文注入    | locate 时注入历史 describe 结果                           | 模型已有完整场景认知，定位准确度显著提升       |
-| 直传 data URL | handler 一次编码，pipeline 直接消费                       | 消除适配器中间层，无重复校验                   |
-| 视频处理      | 直接发送 video_url，不做帧提取                            | DashScope 等视觉模型原生理解视频时序           |
-| 会话持久化    | node:sqlite (Node.js 内置)                                | 零依赖、同步 API、WAL 事务安全                 |
-| 分级模型配置  | 每工具独立三元组 (baseUrl/apiKey/model)，逐字段回退默认值 | 用户自由搭配不同厂商模型，按任务类型选最合适的 |
-| 降级兜底      | 每步独立 try/catch                                        | 任何单点故障不影响服务可用性                   |
-| 输入灵活性    | 本地路径或 HTTP(S) URL                                    | resolveImageSource 统一解析，fetch 自动获取    |
-| 稳定性工程    | 断路器 + 并发控制 + 图片预处理                            | 生产级 API 调用保护，Token 消耗降低 70%+       |
+| 决策               | 选择                                                      | 理由                                           |
+| ------------------ | --------------------------------------------------------- | ---------------------------------------------- |
+| 任务调度           | 6 个独立工具 + 管道方法分发                               | 每个工具专注一件事，系统提示词独立优化         |
+| 两阶段推理         | describe（自然语言）→ locate（JSON）                      | 先理解再定位，避免同时做两件事导致的精度下降   |
+| Prompt-Driven JSON | 提示词模板注入格式指令，删除 API 层 json_object           | 消除厂商锁定，所有 OpenAI 兼容端点零配置接入   |
+| 上下文注入         | locate 时注入历史 describe 结果                           | 模型已有完整场景认知，定位准确度显著提升       |
+| 直传 data URL      | handler 一次编码，pipeline 直接消费                       | 消除适配器中间层，无重复校验                   |
+| 视频处理           | 直接发送 video_url，不做帧提取                            | DashScope 等视觉模型原生理解视频时序           |
+| 会话持久化         | node:sqlite (Node.js 内置)                                | 零依赖、同步 API、WAL 事务安全                 |
+| 分级模型配置       | 每工具独立三元组 (baseUrl/apiKey/model)，逐字段回退默认值 | 用户自由搭配不同厂商模型，按任务类型选最合适的 |
+| 宽容解析           | parseResponse 失败返回 null，管线降级纯文本               | JSON 提取失败不中断服务，用户仍能看到结果      |
+| 降级兜底           | 每步独立 try/catch                                        | 任何单点故障不影响服务可用性                   |
+| 输入灵活性         | 本地路径或 HTTP(S) URL                                    | resolveImageSource 统一解析，fetch 自动获取    |
+| 稳定性工程         | 断路器 + 并发控制 + 图片预处理                            | 生产级 API 调用保护，Token 消耗降低 70%+       |
 
 ---
 
@@ -335,7 +337,7 @@ npm run dev          # 热重载开发
 npm run build        # 编译到 dist/
 npm run lint         # ESLint 检查
 npm run typecheck    # TypeScript 类型检查
-npm test             # 运行 174 个测试（13 文件）
+npm test             # 运行 176 个测试（13 文件）
 npm start            # 启动 MCP 服务（stdio）
 ```
 

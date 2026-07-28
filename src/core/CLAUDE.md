@@ -9,13 +9,14 @@
 ```
 visual_describe:
   [fromCache 模式] 跳过 API，从缓存推理
-  [正常模式] VisionClient.analyze(describe-structured) → JSON {description, objects}
+  [正常模式] VisionClient.chat(describe-structured) → 尝试 JSON 解析
   → parser.ts → validator.ts → normalizer.ts → 入库会话物体
   → buildSpatialGraph() 构建空间图谱（纯数学，零 API 成本）
   → 返回描述 + 物体列表 + position_hint + spatial_graph
+  JSON 提取失败时降级纯文本
 
 visual_locate:
-  VisionClient.analyze(locate-system) → JSON 坐标
+  VisionClient.chat(locate-system) → 尝试 JSON 解析
   → parser.ts → validator.ts → normalizer.ts → 入库会话物体
 
 visual_ocr:
@@ -27,16 +28,16 @@ visual_video_analyze:
 
 ## 文件
 
-| 文件                 | 职责                                        |
-| -------------------- | ------------------------------------------- |
-| `pipeline.ts`        | **管道编排器** — 任务调度核心，4 个方法     |
-| `parser.ts`          | JSON 解析 + 容错（仅 locate）               |
-| `validator.ts`       | 坐标校验（仅 locate）                       |
-| `normalizer.ts`      | 精度归一化（仅 locate）                     |
-| `prompt-builder.ts`  | 增强提示词 + 空间图谱构建 + 历史上下文注入  |
-| `vision-client.ts`   | OpenAI 兼容视觉客户端（`analyze` + `chat`） |
-| `session-manager.ts` | SQLite 会话持久化                           |
-| `sqlite-wrapper.ts`  | node:sqlite Vite 兼容适配层                 |
+| 文件                 | 职责                                       |
+| -------------------- | ------------------------------------------ |
+| `pipeline.ts`        | **管道编排器** — 任务调度核心，4 个方法    |
+| `parser.ts`          | JSON 解析 + 容错（仅 locate）              |
+| `validator.ts`       | 坐标校验（仅 locate）                      |
+| `normalizer.ts`      | 精度归一化（仅 locate）                    |
+| `prompt-builder.ts`  | 增强提示词 + 空间图谱构建 + 历史上下文注入 |
+| `vision-client.ts`   | OpenAI 兼容视觉客户端（`chat()` 唯一入口） |
+| `session-manager.ts` | SQLite 会话持久化                          |
+| `sqlite-wrapper.ts`  | node:sqlite Vite 兼容适配层                |
 
 ## 模型配置
 
@@ -46,7 +47,7 @@ visual_video_analyze:
 
 - `pipeline.ts` 是唯一协调者，每个任务方法独立 try/catch
 - pipeline 直接传 data URL 到 VisionClient，无中间适配层
-- `chat()` 返回自由文本（describe/ocr/video_analyze），`analyze()` 返回 JSON（locate）
+- `chat()` 是唯一入口——所有工具统一使用，JSON 格式由提示词模板驱动
 - 每个模块独立 try/catch，任何异常不崩溃
 
 ## 参考
