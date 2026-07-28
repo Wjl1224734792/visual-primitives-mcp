@@ -18,5 +18,7 @@
       "state": "正常",
       "relevance": "高"
     }
-  ]
+  ],
+  "reasoning": "定位推理过程"
 }
+如果目标物体不存在，objects 可以为空数组。
