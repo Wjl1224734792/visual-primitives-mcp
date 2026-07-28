@@ -5,7 +5,6 @@
  */
 import { describe, it, expect } from 'vitest';
 import { parseResponse, AnalysisParseError } from '../src/core/parser.js';
-import type { VisualAnalysisResult } from '../src/types.js';
 
 /**
  * 构造标准 API 响应字符串
@@ -37,14 +36,15 @@ describe('parseResponse - 标准 JSON 解析（主路径）', () => {
       })
     );
 
-    const result: VisualAnalysisResult = parseResponse(rawContent);
+    const result = parseResponse(rawContent);
 
-    expect(result.objects).toHaveLength(1);
-    expect(result.objects[0]!.id).toBe(1);
-    expect(result.objects[0]!.label).toBe('红色水杯');
-    expect(result.objects[0]!.bbox).toEqual([50, 100, 300, 400]);
-    expect(result.objects[0]!.centroid).toEqual([175, 250]);
-    expect(result.reasoning).toBe('识别到红色水杯');
+    expect(result).not.toBeNull();
+    expect(result!.objects).toHaveLength(1);
+    expect(result!.objects[0]!.id).toBe(1);
+    expect(result!.objects[0]!.label).toBe('红色水杯');
+    expect(result!.objects[0]!.bbox).toEqual([50, 100, 300, 400]);
+    expect(result!.objects[0]!.centroid).toEqual([175, 250]);
+    expect(result!.reasoning).toBe('识别到红色水杯');
   });
 
   it('含多个物体的 JSON 应全部解析', () => {
@@ -169,32 +169,83 @@ describe('parseResponse - 非标 JSON 正则备用提取', () => {
   });
 });
 
-describe('parseResponse - 错误处理', () => {
-  it('完全无法解析的内容应抛出 AnalysisParseError', () => {
+describe('parseResponse - 错误处理与降级', () => {
+  it('完全无法解析的内容应返回 null', () => {
     const rawContent = '这是一段完全没有 JSON 的普通文本';
 
-    expect(() => parseResponse(rawContent)).toThrow(AnalysisParseError);
+    const result = parseResponse(rawContent);
+
+    expect(result).toBeNull();
   });
 
-  it('仅含花括号的无效 JSON 应抛出 AnalysisParseError', () => {
+  it('仅含花括号的无效 JSON 应返回 null', () => {
     const rawContent = '{ 这不是有效的 json }';
 
-    expect(() => parseResponse(rawContent)).toThrow(AnalysisParseError);
+    const result = parseResponse(rawContent);
+
+    expect(result).toBeNull();
   });
 
-  it('objects 数组为空应抛出 AnalysisParseError 并包含 "no objects found"', () => {
+  it('objects 数组为空是合法状态，不返回 null', () => {
     const rawContent = makeApiResponse(JSON.stringify({ objects: [] }));
 
-    expect(() => parseResponse(rawContent)).toThrow(AnalysisParseError);
-    expect(() => parseResponse(rawContent)).toThrow(/no objects found/i);
+    const result = parseResponse(rawContent);
+
+    expect(result).not.toBeNull();
+    expect(result!.objects).toEqual([]);
   });
 
-  it('objects 字段缺失应抛出 AnalysisParseError', () => {
+  it('objects 字段缺失应返回 null', () => {
     const rawContent = makeApiResponse(
       JSON.stringify({ reasoning: 'no objects field' })
     );
 
-    expect(() => parseResponse(rawContent)).toThrow(AnalysisParseError);
+    const result = parseResponse(rawContent);
+
+    expect(result).toBeNull();
+  });
+
+  it('应使用 description 字段作为 reasoning 的回退', () => {
+    const rawContent = makeApiResponse(
+      JSON.stringify({
+        objects: [
+          {
+            id: 1,
+            label: 'test',
+            bbox: [0, 0, 100, 100],
+            centroid: [50, 50],
+          },
+        ],
+        description: '这是一张日历表',
+      })
+    );
+
+    const result = parseResponse(rawContent);
+
+    expect(result).not.toBeNull();
+    expect(result!.reasoning).toBe('这是一张日历表');
+  });
+
+  it('reasoning 优先级高于 description', () => {
+    const rawContent = makeApiResponse(
+      JSON.stringify({
+        objects: [
+          {
+            id: 1,
+            label: 'test',
+            bbox: [0, 0, 100, 100],
+            centroid: [50, 50],
+          },
+        ],
+        reasoning: '来自 reasoning',
+        description: '来自 description',
+      })
+    );
+
+    const result = parseResponse(rawContent);
+
+    expect(result).not.toBeNull();
+    expect(result!.reasoning).toBe('来自 reasoning');
   });
 
   it('AnalysisParseError 应为 Error 的子类', () => {
