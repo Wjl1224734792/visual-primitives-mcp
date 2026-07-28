@@ -2,17 +2,13 @@
  * OpenAI 兼容视觉模型客户端
  *
  * 支持任意 OpenAI Chat Completions 兼容接口。
- * 提供两个入口：
- *   - chat()：自由文本输出（describe, ocr, video_analyze）
- *   - analyze()：JSON 输出（locate 坐标定位）
+ * 只有一个入口：chat()。
+ *
+ * JSON 结构化的控制权在提示词层（模板末尾注入格式指令），
+ * 不在 API 参数层（不使用 response_format / max_tokens）。
  *
  * 直接接受 data URL，根据 MIME 前缀自动选 image_url / video_url。
  * 指数退避重试（最多 3 次）。
- *
- * Phase 1 增强：
- *   - 可配置超时（替换硬编码 120s）
- *   - 集成断路器（每模型/工具独立）
- *   - 集成并发控制（全局信号量）
  */
 import { withRetry } from '../utils/retry.js';
 import { logger } from '../utils/logger.js';
@@ -27,31 +23,6 @@ import type { ModelConfig } from '../types.js';
 
 function normalizeBaseUrl(url: string): string {
   return url.endsWith('/') ? url.slice(0, -1) : url;
-}
-
-function buildMessages(
-  dataUrls: string[],
-  systemPrompt: string,
-  userPrompt?: string
-): Array<Record<string, unknown>> {
-  const userContent: Record<string, unknown>[] = [];
-  for (const dataUrl of dataUrls) {
-    const isVideo = /^data:video\//i.test(dataUrl);
-    if (isVideo) {
-      userContent.push({ type: 'video_url', video_url: { url: dataUrl } });
-    } else {
-      userContent.push({ type: 'image_url', image_url: { url: dataUrl } });
-    }
-  }
-  userContent.unshift({
-    type: 'text',
-    text: userPrompt ?? '请按照系统提示词的要求完成分析。',
-  });
-
-  return [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userContent },
-  ];
 }
 
 function extractStatusCode(errorMessage: string): number {
@@ -73,11 +44,6 @@ function shouldRetry(error: unknown): boolean {
   if (status > 0 && status < 500) return false;
   return true;
 }
-
-const DEGRADED_JSON = JSON.stringify({
-  objects: [],
-  spatial_relationships: [],
-});
 
 export class VisionClient {
   private readonly defaultTimeoutMs: number;
@@ -106,7 +72,17 @@ export class VisionClient {
   }
 
   /**
-   * 自由文本输出（describe / ocr / video_analyze 用）
+   * 统一视觉 API 调用入口
+   *
+   * 发送图片/视频 + 提示词到 OpenAI 兼容端点，返回模型原始文本。
+   * 不设 response_format / max_tokens —— JSON 格式由提示词模板驱动。
+   *
+   * @param modelConfig 模型配置（baseUrl/apiKey/model）
+   * @param dataUrls Base64 data URL 数组
+   * @param systemPrompt 系统提示词（含格式指令）
+   * @param userPrompt 用户提示词（可选）
+   * @param timeoutMs 超时时间（可选，默认使用配置值）
+   * @returns 模型原始文本响应
    */
   async chat(
     modelConfig: ModelConfig,
@@ -116,13 +92,35 @@ export class VisionClient {
     timeoutMs?: number
   ): Promise<string> {
     const url = `${normalizeBaseUrl(modelConfig.baseUrl)}/chat/completions`;
-    const messages = buildMessages(dataUrls, systemPrompt, userPrompt);
-    const effectiveTimeout = timeoutMs ?? this.defaultTimeoutMs;
+
+    // 构建 user content：图片/视频 media + 文本提示词
+    const userContent: Record<string, unknown>[] = [];
+    for (const dataUrl of dataUrls) {
+      const isVideo = /^data:video\//i.test(dataUrl);
+      if (isVideo) {
+        userContent.push({ type: 'video_url', video_url: { url: dataUrl } });
+      } else {
+        userContent.push({ type: 'image_url', image_url: { url: dataUrl } });
+      }
+    }
+    userContent.unshift({
+      type: 'text',
+      text: userPrompt ?? '请按照系统提示词的要求完成分析。',
+    });
+
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userContent },
+    ];
 
     const body: Record<string, unknown> = {
       model: modelConfig.model,
       messages,
     };
+    // 无 response_format、无 max_tokens、无 injectJsonHint
+    // 所有厂商统一用这个请求格式
+
+    const effectiveTimeout = timeoutMs ?? this.defaultTimeoutMs;
 
     logger.info(
       { model: modelConfig.model, dataUrlCount: dataUrls.length },
@@ -140,47 +138,7 @@ export class VisionClient {
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       logger.error({ error: msg }, 'VisionClient.chat: 重试耗尽，降级');
-      return '（视觉模型暂时不可用，请稍后重试）';
-    }
-  }
-
-  /**
-   * JSON 输出（locate 坐标定位用）
-   */
-  async analyze(
-    modelConfig: ModelConfig,
-    dataUrls: string[],
-    systemPrompt: string,
-    userPrompt?: string,
-    timeoutMs?: number
-  ): Promise<string> {
-    const url = `${normalizeBaseUrl(modelConfig.baseUrl)}/chat/completions`;
-    const messages = buildMessages(dataUrls, systemPrompt, userPrompt);
-    const effectiveTimeout = timeoutMs ?? this.defaultTimeoutMs;
-
-    const body: Record<string, unknown> = {
-      model: modelConfig.model,
-      messages,
-      response_format: { type: 'json_object' as const },
-    };
-
-    logger.info(
-      { model: modelConfig.model, dataUrlCount: dataUrls.length },
-      'VisionClient.analyze: 开始调用'
-    );
-
-    try {
-      const result = await this.executeWithBreaker('analyze', modelConfig, () =>
-        withRetry(
-          () => this.doFetch(url, modelConfig.apiKey, body, effectiveTimeout),
-          { maxAttempts: 3, baseDelayMs: 1000, maxDelayMs: 30000, shouldRetry }
-        )
-      );
-      return result;
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      logger.error({ error: msg }, 'VisionClient.analyze: 重试耗尽，降级');
-      return DEGRADED_JSON;
+      return `（视觉模型暂时不可用，请稍后重试。错误详情：${msg}）`;
     }
   }
 
