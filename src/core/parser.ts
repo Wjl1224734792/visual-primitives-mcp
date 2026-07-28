@@ -17,11 +17,14 @@ export class AnalysisParseError extends Error {
 /**
  * 解析视觉模型原始响应，提取结构化分析结果
  *
+ * 主路径：提取 choices[0].message.content → JSON.parse → VisualAnalysisResult
+ * 备用路径：正则提取第一个完整 JSON 对象
+ * 均失败时返回 null（不抛异常，由上游管线降级为纯文本）
+ *
  * @param rawContent - 视觉模型 API 返回的原始响应字符串
- * @returns 解析后的 VisualAnalysisResult
- * @throws {AnalysisParseError} 无法解析或 objects 为空时
+ * @returns 解析后的 VisualAnalysisResult，或 null（降级纯文本）
  */
-export function parseResponse(rawContent: string): VisualAnalysisResult {
+export function parseResponse(rawContent: string): VisualAnalysisResult | null {
   let contentStr = rawContent;
 
   // 主路径：尝试解析为 API 响应，提取 choices[0].message.content
@@ -48,18 +51,10 @@ export function parseResponse(rawContent: string): VisualAnalysisResult {
   // 备用路径：正则提取第一个完整 JSON 对象
   const match = contentStr.match(/\{[\s\S]*\}/);
   if (!match) {
-    throw new AnalysisParseError(
-      'unable to parse analysis response: no valid JSON found'
-    );
+    return null;
   }
 
   const fallbackResult = tryParseContent(match[0]);
-  if (fallbackResult === null) {
-    throw new AnalysisParseError(
-      'unable to parse analysis response: extracted JSON is invalid'
-    );
-  }
-
   return fallbackResult;
 }
 
@@ -79,13 +74,18 @@ function tryParseContent(jsonStr: string): VisualAnalysisResult | null {
   }
 
   const objects = result.objects as VisualAnalysisResult['objects'] | undefined;
-  if (!objects || !Array.isArray(objects) || objects.length === 0) {
-    throw new AnalysisParseError('no objects found in analysis result');
+  // objects 字段缺失或不是数组 → 返回 null，不抛异常
+  if (!objects || !Array.isArray(objects)) {
+    return null;
   }
 
   return {
     reasoning:
-      typeof result.reasoning === 'string' ? result.reasoning : undefined,
+      typeof result.reasoning === 'string'
+        ? result.reasoning
+        : typeof result.description === 'string'
+          ? result.description
+          : undefined,
     objects,
     spatial_relationships: Array.isArray(result.spatial_relationships)
       ? (result.spatial_relationships as string[])

@@ -278,48 +278,58 @@ export class PipelineOrchestrator {
           description = raw;
           objects = [];
         } else {
-          const raw = await this.visionClient.analyze(
+          const raw = await this.visionClient.chat(
             config.describe,
             dataUrls,
             selectedPrompt,
             userPrompt
           );
 
-          const parsed: VisualAnalysisResult = parseResponse(raw);
-          validateObjects(parsed.objects, precision);
-          const normalized = normalizeObjects(
-            parsed.objects,
-            precision,
-            precision
-          );
+          const parsed = parseResponse(raw);
 
-          // 存储物体到会话
-          const sessionObjects = visualToSessionObjects(
-            normalized,
-            mediaType,
-            round
-          );
-          if (sessionObjects.length > 0) {
-            this.sessionManager.upsertObjects(
-              sessionId,
-              sessionObjects,
-              'augment'
+          if (parsed) {
+            validateObjects(parsed.objects, precision);
+            const normalized = normalizeObjects(
+              parsed.objects,
+              precision,
+              precision
             );
+
+            // 存储物体到会话
+            const sessionObjects = visualToSessionObjects(
+              normalized,
+              mediaType,
+              round
+            );
+            if (sessionObjects.length > 0) {
+              this.sessionManager.upsertObjects(
+                sessionId,
+                sessionObjects,
+                'augment'
+              );
+            }
+
+            objects = normalized.map(obj => ({
+              id: obj.id,
+              label: obj.label,
+              bbox: obj.bbox,
+              centroid: obj.centroid,
+              color: obj.color,
+              state: obj.state,
+              relevance: obj.relevance,
+              position_hint: computePositionHint(obj.centroid, precision),
+            }));
+
+            description =
+              parsed.reasoning ?? '（视觉模型已识别画面中的关键物体）';
+          } else {
+            // JSON 提取失败，降级为纯文本
+            objects = [];
+            description =
+              raw.length > 0
+                ? raw.substring(0, 2000)
+                : '（模型未返回有效结果）';
           }
-
-          objects = normalized.map(obj => ({
-            id: obj.id,
-            label: obj.label,
-            bbox: obj.bbox,
-            centroid: obj.centroid,
-            color: obj.color,
-            state: obj.state,
-            relevance: obj.relevance,
-            position_hint: computePositionHint(obj.centroid, precision),
-          }));
-
-          description =
-            parsed.reasoning ?? '（视觉模型已识别画面中的关键物体）';
         }
       }
 
@@ -415,41 +425,44 @@ export class PipelineOrchestrator {
           ? `${historyContext}\n\n现在请定位以下目标物体：${question}`
           : question;
 
-        const raw = await this.visionClient.analyze(
+        const raw = await this.visionClient.chat(
           config.locate,
           dataUrls,
           locateSystemPrompt,
           userPrompt
         );
 
-        const parsed: VisualAnalysisResult = parseResponse(raw);
-        const precision = coordinatePrecision === '0-100' ? 100 : 1000;
-        validateObjects(parsed.objects, precision);
+        const parsed = parseResponse(raw);
 
-        let normalized = parsed.objects;
-        if (precision === 100) {
-          normalized = normalizeObjects(parsed.objects, 100, 1000);
-        }
+        if (parsed) {
+          const precision = coordinatePrecision === '0-100' ? 100 : 1000;
+          validateObjects(parsed.objects, precision);
 
-        const sessionObjects = visualToSessionObjects(
-          normalized,
-          mediaType,
-          round
-        );
+          let normalized = parsed.objects;
+          if (precision === 100) {
+            normalized = normalizeObjects(parsed.objects, 100, 1000);
+          }
 
-        if (sessionObjects.length > 0) {
-          this.sessionManager.upsertObjects(
-            sessionId,
-            sessionObjects,
-            'augment'
+          const sessionObjects = visualToSessionObjects(
+            normalized,
+            mediaType,
+            round
           );
-        }
 
-        visualAnalysis = {
-          reasoning: parsed.reasoning,
-          objects: normalized,
-          spatial_relationships: parsed.spatial_relationships,
-        };
+          if (sessionObjects.length > 0) {
+            this.sessionManager.upsertObjects(
+              sessionId,
+              sessionObjects,
+              'augment'
+            );
+          }
+
+          visualAnalysis = {
+            reasoning: parsed.reasoning,
+            objects: normalized,
+            spatial_relationships: parsed.spatial_relationships,
+          };
+        }
       } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         metricsRegistry.recordError('locate');
